@@ -14,6 +14,31 @@ thread_local! {
     static RUNTIME: Runtime = Runtime::new();
 }
 
+struct DependencyTracker {
+    dependencies: Vec<SignalId>,
+    index: usize,
+    new_dependencies: Vec<SignalId>,
+}
+
+impl DependencyTracker {
+    pub fn new(dependencies: Vec<SignalId>) -> Self {
+        Self {
+            dependencies,
+            index: 0,
+            new_dependencies: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, signal_id: SignalId) {
+        if self.new_dependencies.is_empty() && self.dependencies.get(self.index) == Some(&signal_id)
+        {
+            self.index += 1;
+        } else {
+            self.new_dependencies.push(signal_id);
+        }
+    }
+}
+
 /// The reactive runtime that manages all signals, memos, and effects.
 pub(crate) struct Runtime {
     pub signals: RefCell<SlotMap<SignalId, SignalInner>>,
@@ -21,7 +46,7 @@ pub(crate) struct Runtime {
 
     pub null_signal: SignalId,
 
-    tracker: RefCell<Option<Vec<SignalId>>>,
+    tracker: RefCell<Option<DependencyTracker>>,
 
     batch_depth: Cell<usize>,
     pending_updates: RefCell<Vec<EffectId>>,
@@ -79,8 +104,11 @@ impl Runtime {
 
     pub fn update(&self, effect_id: EffectId) {
         let mut effect = self.effect_mut(effect_id);
-        let is_dynamic = matches!(effect.dependencies, Dependencies::Dynamic(_));
-        let prev_tracker = self.tracker.replace(is_dynamic.then(Vec::new));
+        let tracker = match &mut effect.dependencies {
+            Dependencies::Static(_) => None,
+            Dependencies::Dynamic(deps) => Some(DependencyTracker::new(mem::take(deps))),
+        };
+        let prev_tracker = self.tracker.replace(tracker);
 
         let signal_id = effect.signal;
         let mut value = self.signal_mut(signal_id).value.take();
@@ -92,25 +120,24 @@ impl Runtime {
 
         // TODO: optimize, avoid unnecessary re-tracking
         let mut effect = self.effect_mut(effect_id);
+        effect.state = EffectState::Clean;
         effect.callback = Some(callback);
-        if let Dependencies::Dynamic(dependencies) = &mut effect.dependencies {
-            for dep in dependencies.drain(..) {
-                self.signal_mut(dep).subscribers.remove(&effect_id);
+        if let Some(mut tracker) = self.tracker.replace(prev_tracker) {
+            for signal_id in tracker.dependencies.drain(tracker.index..) {
+                self.signal_mut(signal_id).subscribers.remove(&effect_id);
             }
-            *dependencies = self.tracker.borrow_mut().take().unwrap();
-            for dep in dependencies {
-                self.signal_mut(*dep).subscribers.insert(effect_id);
+            tracker.dependencies.reserve(tracker.new_dependencies.len());
+            for signal_id in tracker.new_dependencies {
+                self.signal_mut(signal_id).subscribers.insert(effect_id);
+                tracker.dependencies.push(signal_id);
             }
-
-            effect.state = EffectState::Clean;
-            drop(effect);
+            effect.dependencies = Dependencies::Dynamic(tracker.dependencies);
         }
+        drop(effect);
 
         if updated {
             self.on_update(signal_id);
         }
-
-        *self.tracker.borrow_mut() = prev_tracker;
     }
 
     pub fn update_if_necessary(&self, signal_id: SignalId) {
