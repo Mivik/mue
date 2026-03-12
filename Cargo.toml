@@ -1,0 +1,12 @@
+[workspace]
+members = ["mue-core"]
+resolver = "2"
+
+[workspace.package]
+license = "MIT"
+edition = "2021"
+repository = "https://github.com/Mivik/mue-core"
+rust-version = "1.74.0"
+
+[workspace.dependencies]
+mue-core = { path = "mue-core" }
