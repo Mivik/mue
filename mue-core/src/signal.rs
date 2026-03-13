@@ -204,6 +204,20 @@ impl<T: 'static> Signal<T> {
         self.set_with_untracked(|_| value);
     }
 
+    pub fn update<R>(self, f: impl FnOnce(&mut T) -> R) -> R {
+        let result = self.update_untracked(f);
+        Runtime::with(|rt| rt.on_update(self.id));
+        result
+    }
+
+    pub fn update_untracked<R>(self, f: impl FnOnce(&mut T) -> R) -> R {
+        Runtime::with(|rt| {
+            self.with_inner_mut(rt, |inner| {
+                f(inner.value.as_mut().unwrap().downcast_mut::<T>().unwrap())
+            })
+        })
+    }
+
     /// Dispose this signal, cleaning up all resources and dependencies.
     /// After disposal, the signal should not be used.
     pub fn dispose(self) {
@@ -244,6 +258,9 @@ mod test {
 
         count.set_with(|x| x + 1);
         assert_eq!(count.get(), 6);
+
+        count.update(|x| *x += 1);
+        assert_eq!(count.get(), 7);
     }
 
     #[test]
