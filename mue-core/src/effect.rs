@@ -53,14 +53,19 @@ pub(crate) struct EffectInner {
     pub signal: SignalId,
     pub dependencies: Dependencies,
     pub state: EffectState,
+    #[cfg(debug_assertions)]
+    pub location: &'static std::panic::Location<'static>,
 }
 
 impl EffectInner {
+    #[track_caller]
     pub fn new(
         callback: EffectCallback,
         signal: SignalId,
         dependencies: Dependencies,
         state: EffectState,
+        #[cfg(debug_assertions)]
+        location: &'static std::panic::Location<'static>,
     ) -> Self {
         Self {
             callback: Some(callback),
@@ -68,6 +73,8 @@ impl EffectInner {
             signal,
             dependencies,
             state,
+            #[cfg(debug_assertions)]
+            location,
         }
     }
 
@@ -113,6 +120,7 @@ impl Effect {
     }
 }
 
+#[track_caller]
 pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'static) -> Effect {
     let signal = match prop {
         Prop::Static(_) => {
@@ -121,6 +129,8 @@ pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'stat
         }
         Prop::Dynamic(signal) => signal,
     };
+    #[cfg(debug_assertions)]
+    let location = std::panic::Location::caller();
     Runtime::with(|rt| {
         let effect_id = EffectInner::new(
             Box::new(move |_value| {
@@ -130,6 +140,8 @@ pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'stat
             rt.null_signal,
             Dependencies::Static(signal.id),
             EffectState::Clean,
+            #[cfg(debug_assertions)]
+            location,
         )
         .register(rt);
         rt.signal_mut(signal.id).subscribers.insert(effect_id);
@@ -137,6 +149,7 @@ pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'stat
     })
 }
 
+#[track_caller]
 pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + 'static) -> Effect {
     let signal = match prop {
         Prop::Static(_) => {
@@ -145,6 +158,8 @@ pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + '
         }
         Prop::Dynamic(signal) => signal,
     };
+    #[cfg(debug_assertions)]
+    let location = std::panic::Location::caller();
     Runtime::with(|rt| {
         let effect_id = EffectInner::new(
             Box::new(move |_value| {
@@ -154,6 +169,8 @@ pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + '
             rt.null_signal,
             Dependencies::Static(signal.id),
             EffectState::Dirty,
+            #[cfg(debug_assertions)]
+            location,
         )
         .register(rt);
         rt.signal_mut(signal.id).subscribers.insert(effect_id);
@@ -163,7 +180,10 @@ pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + '
     })
 }
 
+#[track_caller]
 pub fn watch_effect(mut f: impl FnMut() + 'static) -> Effect {
+    #[cfg(debug_assertions)]
+    let location = std::panic::Location::caller();
     Runtime::with(|rt| {
         let effect_id = EffectInner::new(
             Box::new(move |_value| {
@@ -173,6 +193,8 @@ pub fn watch_effect(mut f: impl FnMut() + 'static) -> Effect {
             rt.null_signal,
             Dependencies::default(),
             EffectState::Dirty,
+            #[cfg(debug_assertions)]
+            location,
         )
         .register(rt);
         rt.update(effect_id);
@@ -206,7 +228,10 @@ pub fn on_cleanup(f: impl FnOnce() + 'static) {
     });
 }
 
+#[track_caller]
 fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
+    #[cfg(debug_assertions)]
+    let location = std::panic::Location::caller();
     Runtime::with(|rt| {
         let signal_id = SignalInner::new(None, None).register(rt);
         let effect_id = EffectInner::new(
@@ -214,6 +239,8 @@ fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
             signal_id,
             Dependencies::default(),
             EffectState::Dirty,
+            #[cfg(debug_assertions)]
+            location,
         )
         .register(rt);
         rt.signal_mut(signal_id).effect = Some(effect_id);
@@ -221,9 +248,11 @@ fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
     })
 }
 
+#[track_caller]
 pub fn computed<T: PartialEq + 'static>(mut f: impl FnMut() -> T + 'static) -> ReadSignal<T> {
     computed_with_previous(move |_| f())
 }
+#[track_caller]
 pub fn computed_with_previous<T: PartialEq + 'static>(
     mut f: impl FnMut(Option<&T>) -> T + 'static,
 ) -> ReadSignal<T> {
@@ -419,6 +448,20 @@ mod test {
 
         // After batch, memo should reflect new values
         assert_eq!(sum.get(), 30);
+    }
+
+    #[test]
+    fn test_nested_watch_immediate() {
+        let a = signal(0);
+        let b = computed(move || a.get() + 1);
+
+        let effect_runs = Rc::new(RefCell::new(0));
+        let effect_runs_clone = effect_runs.clone();
+
+        watch_immediate(Prop::Dynamic(b), move |_| {
+            b.get();
+            *effect_runs_clone.borrow_mut() += 1;
+        });
     }
 
     #[test]

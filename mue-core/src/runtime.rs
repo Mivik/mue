@@ -110,6 +110,10 @@ impl Runtime {
         }
 
         let mut effect = self.effect_mut(effect_id);
+        if effect.callback.is_none() {
+            // TODO: this solution is hacky. See test_nested_watch_immediate
+            return;
+        }
         effect.cleanup();
 
         let tracker = match &mut effect.dependencies {
