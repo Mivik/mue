@@ -3,7 +3,7 @@ use std::{
     mem,
 };
 
-use slotmap::SlotMap;
+use slotmap::{Key, SlotMap};
 
 use crate::{
     effect::{Dependencies, EffectId, EffectInner, EffectState},
@@ -71,7 +71,7 @@ impl Runtime {
     }
 
     pub fn with<R>(f: impl FnOnce(&Runtime) -> R) -> R {
-        RUNTIME.with(|rt| f(rt))
+        RUNTIME.with(f)
     }
 
     pub fn signal_mut(&self, signal_id: SignalId) -> RefMut<'_, SignalInner> {
@@ -103,12 +103,21 @@ impl Runtime {
     }
 
     pub fn update(&self, effect_id: EffectId) {
+        if effect_id.is_null() {
+            return;
+        }
+
         let mut effect = self.effect_mut(effect_id);
+        effect.cleanup();
+
         let tracker = match &mut effect.dependencies {
             Dependencies::Static(_) => None,
             Dependencies::Dynamic(deps) => Some(DependencyTracker::new(mem::take(deps))),
         };
         let prev_tracker = self.tracker.replace(tracker);
+
+        // Set current effect for on_cleanup
+        let prev_effect = crate::effect::CURRENT_EFFECT.replace(Some(effect_id));
 
         let signal_id = effect.signal;
         let mut value = self.signal_mut(signal_id).value.take();
@@ -134,6 +143,9 @@ impl Runtime {
             effect.dependencies = Dependencies::Dynamic(tracker.dependencies);
         }
         drop(effect);
+
+        // Restore previous effect
+        crate::effect::CURRENT_EFFECT.replace(prev_effect);
 
         if updated {
             self.on_update(signal_id);
@@ -232,9 +244,12 @@ impl Runtime {
 
     /// Dispose an effect, removing it and cleaning up all dependencies.
     pub fn dispose_effect(&self, effect_id: EffectId) {
-        let Some(effect) = self.effects.borrow_mut().remove(effect_id) else {
+        let Some(mut effect) = self.effects.borrow_mut().remove(effect_id) else {
             return;
         };
+
+        // Execute cleanup before disposing
+        effect.cleanup();
 
         // Remove this effect from all signals it depends on
         for signal_id in &*effect.dependencies {

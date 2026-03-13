@@ -1,9 +1,12 @@
-use std::{ops::Deref, slice};
+use std::{cell::RefCell, ops::Deref, slice};
 
 use slotmap::{new_key_type, Key};
 
 use crate::{
-    Prop, runtime::Runtime, scope::CURRENT_SCOPE, signal::{ReadSignal, SignalId, SignalInner, Value}
+    runtime::Runtime,
+    scope::CURRENT_SCOPE,
+    signal::{ReadSignal, SignalId, SignalInner, Value},
+    Prop,
 };
 
 new_key_type! {
@@ -13,6 +16,11 @@ new_key_type! {
 }
 
 pub(crate) type EffectCallback = Box<dyn FnMut(&mut Option<Value>) -> bool>;
+pub(crate) type CleanupCallback = Box<dyn FnOnce()>;
+
+thread_local! {
+    pub(crate) static CURRENT_EFFECT: RefCell<Option<EffectId>> = const { RefCell::new(None) };
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EffectState {
@@ -45,6 +53,7 @@ impl Deref for Dependencies {
 
 pub(crate) struct EffectInner {
     pub callback: Option<EffectCallback>,
+    pub cleanups: Vec<CleanupCallback>,
     pub signal: SignalId,
     pub dependencies: Dependencies,
     pub state: EffectState,
@@ -59,9 +68,16 @@ impl EffectInner {
     ) -> Self {
         Self {
             callback: Some(callback),
+            cleanups: Vec::new(),
             signal,
             dependencies,
             state,
+        }
+    }
+
+    pub fn cleanup(&mut self) {
+        for cleanup in self.cleanups.drain(..) {
+            cleanup();
         }
     }
 
@@ -84,6 +100,12 @@ impl Effect {
             }
         });
         Self { id }
+    }
+
+    pub fn null() -> Self {
+        Self {
+            id: EffectId::null(),
+        }
     }
 
     pub fn force_trigger(&self) {
@@ -160,6 +182,34 @@ pub fn watch_effect(mut f: impl FnMut() + 'static) -> Effect {
         rt.update(effect_id);
         Effect::new(effect_id)
     })
+}
+
+/// Register a cleanup function to be called when the current effect is re-run or disposed.
+/// This function should only be called within an effect callback.
+///
+/// # Example
+/// ```
+/// use mue_core::prelude::*;
+///
+/// let count = signal(0);
+/// watch_effect(|| {
+///     let id = 42; // Some resource ID
+///     on_cleanup(move || {
+///         println!("Cleaning up resource {}", id);
+///     });
+///     count.get();
+/// });
+/// ```
+pub fn on_cleanup(f: impl FnOnce() + 'static) {
+    CURRENT_EFFECT.with_borrow(|current| {
+        if let Some(effect_id) = *current {
+            Runtime::with(|rt| {
+                if let Some(effect) = rt.effects.borrow_mut().get_mut(effect_id) {
+                    effect.cleanups.push(Box::new(f));
+                }
+            });
+        }
+    });
 }
 
 fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
@@ -398,5 +448,150 @@ mod test {
         // Update should also trigger effect
         count.set(1);
         assert_eq!(*effect_runs.borrow(), 3);
+    }
+
+    #[test]
+    fn test_cleanup_on_rerun() {
+        let count = signal(0);
+        let cleanup_runs = Rc::new(RefCell::new(0));
+        let cleanup_runs_clone = cleanup_runs.clone();
+
+        watch_effect(move || {
+            count.get();
+            let cleanup_clone = cleanup_runs_clone.clone();
+            on_cleanup(move || {
+                *cleanup_clone.borrow_mut() += 1;
+            });
+        });
+
+        // Initial run - cleanup not called yet
+        assert_eq!(*cleanup_runs.borrow(), 0);
+
+        // Trigger re-run - cleanup should be called
+        count.set(1);
+        assert_eq!(*cleanup_runs.borrow(), 1);
+
+        // Another re-run
+        count.set(2);
+        assert_eq!(*cleanup_runs.borrow(), 2);
+    }
+
+    #[test]
+    fn test_cleanup_on_dispose() {
+        let count = signal(0);
+        let cleanup_runs = Rc::new(RefCell::new(0));
+        let cleanup_runs_clone = cleanup_runs.clone();
+
+        let effect = watch_effect(move || {
+            count.get();
+            let cleanup_runs_clone = cleanup_runs_clone.clone();
+            on_cleanup(move || {
+                *cleanup_runs_clone.borrow_mut() += 1;
+            });
+        });
+
+        // Initial run - cleanup not called yet
+        assert_eq!(*cleanup_runs.borrow(), 0);
+
+        // Dispose effect - cleanup should be called
+        effect.dispose();
+        assert_eq!(*cleanup_runs.borrow(), 1);
+
+        // Update signal - cleanup should not be called again
+        count.set(1);
+        assert_eq!(*cleanup_runs.borrow(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_with_computed() {
+        let count = signal(1);
+        let doubled = computed(move || count.get() * 2);
+        let cleanup_runs = Rc::new(RefCell::new(0));
+        let cleanup_runs_clone = cleanup_runs.clone();
+
+        watch_effect(move || {
+            doubled.get();
+            let cleanup_runs_clone = cleanup_runs_clone.clone();
+            on_cleanup(move || {
+                *cleanup_runs_clone.borrow_mut() += 1;
+            });
+        });
+
+        // Initial run
+        assert_eq!(*cleanup_runs.borrow(), 0);
+
+        // Update signal - cleanup should run before re-run
+        count.set(2);
+        assert_eq!(*cleanup_runs.borrow(), 1);
+
+        // Another update
+        count.set(3);
+        assert_eq!(*cleanup_runs.borrow(), 2);
+    }
+
+    #[test]
+    fn test_cleanup_with_resources() {
+        use std::cell::Cell;
+
+        struct Resource {
+            cleaned_up: Rc<Cell<bool>>,
+        }
+
+        impl Resource {
+            fn new(cleaned_up: Rc<Cell<bool>>) -> Self {
+                Self { cleaned_up }
+            }
+
+            fn cleanup(&mut self) {
+                self.cleaned_up.set(true);
+            }
+        }
+
+        let count = signal(0);
+        let cleaned_up = Rc::new(Cell::new(false));
+        let cleaned_up_clone = cleaned_up.clone();
+
+        watch_effect(move || {
+            let _ = count.get();
+            let mut resource = Resource::new(cleaned_up_clone.clone());
+            on_cleanup(move || {
+                resource.cleanup();
+            });
+        });
+
+        // Initial run
+        assert!(!cleaned_up.get());
+
+        // Trigger re-run - resource should be cleaned up
+        count.set(1);
+        assert!(cleaned_up.get());
+    }
+
+    #[test]
+    fn test_cleanup_replacement() {
+        let count = signal(0);
+        let cleanup_values = Rc::new(RefCell::new(Vec::new()));
+        let cleanup_values_clone = cleanup_values.clone();
+
+        watch_effect(move || {
+            let current = count.get();
+            let values = cleanup_values_clone.clone();
+            on_cleanup(move || {
+                values.borrow_mut().push(current);
+            });
+        });
+
+        // Initial run
+        assert_eq!(*cleanup_values.borrow(), Vec::<i32>::new());
+
+        // Each re-run should call the previous cleanup with the old value
+        count.set(1);
+        assert_eq!(*cleanup_values.borrow(), vec![0]);
+
+        count.set(2);
+        assert_eq!(*cleanup_values.borrow(), vec![0, 1]);
+
+        count.set(3);
+        assert_eq!(*cleanup_values.borrow(), vec![0, 1, 2]);
     }
 }
