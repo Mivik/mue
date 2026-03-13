@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashSet, marker::PhantomData, ops::Deref};
 
 use slotmap::new_key_type;
 
-use crate::{effect::EffectId, runtime::Runtime};
+use crate::{effect::EffectId, runtime::Runtime, scope::CURRENT_SCOPE};
 
 new_key_type! {
     pub(crate) struct SignalId;
@@ -75,6 +75,11 @@ pub trait Access {
 
 impl<T> ReadSignal<T> {
     pub(crate) fn new(id: SignalId) -> Self {
+        CURRENT_SCOPE.with_borrow_mut(|scope| {
+            if let Some(scope) = scope {
+                scope.signals.push(id);
+            }
+        });
         Self {
             id,
             _marker: PhantomData,

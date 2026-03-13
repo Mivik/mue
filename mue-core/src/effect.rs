@@ -3,15 +3,13 @@ use std::{ops::Deref, slice};
 use slotmap::{new_key_type, Key};
 
 use crate::{
-    runtime::Runtime,
-    signal::{ReadSignal, SignalId, SignalInner, Value},
-    Prop,
+    Prop, runtime::Runtime, scope::CURRENT_SCOPE, signal::{ReadSignal, SignalId, SignalInner, Value}
 };
 
 new_key_type! {
     /// Unique identifier for an effect in the reactive system.
     /// Can be used to dispose effects created by `watch` or `watch_effect`.
-    pub struct EffectId;
+    pub(crate) struct EffectId;
 }
 
 pub(crate) type EffectCallback = Box<dyn FnMut(&mut Option<Value>) -> bool>;
@@ -80,6 +78,11 @@ pub struct Effect {
 
 impl Effect {
     pub(crate) fn new(id: EffectId) -> Self {
+        CURRENT_SCOPE.with_borrow_mut(|scope| {
+            if let Some(scope) = scope {
+                scope.effects.push(id);
+            }
+        });
         Self { id }
     }
 

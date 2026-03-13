@@ -3,7 +3,7 @@ use std::{
     mem,
 };
 
-use slotmap::{Key, SlotMap};
+use slotmap::SlotMap;
 
 use crate::{
     effect::{Dependencies, EffectId, EffectInner, EffectState},
@@ -209,8 +209,12 @@ impl Runtime {
             return;
         }
 
+        let Some(mut signal) = self.signals.borrow_mut().remove(signal_id) else {
+            return;
+        };
+
         // Remove this signal from all effects that depend on it
-        let subscribers = mem::take(&mut self.signal_mut(signal_id).subscribers);
+        let subscribers = mem::take(&mut signal.subscribers);
         for effect_id in subscribers {
             if let Some(effect) = self.effects.borrow_mut().get_mut(effect_id) {
                 // Remove signal from effect's dependencies
@@ -221,12 +225,9 @@ impl Runtime {
         }
 
         // If there's an effect associated with this signal (computed), dispose it too
-        if let Some(effect_id) = self.signal_mut(signal_id).effect {
+        if let Some(effect_id) = signal.effect {
             self.dispose_effect(effect_id);
         }
-
-        // Remove the signal from the runtime
-        self.signals.borrow_mut().remove(signal_id);
     }
 
     /// Dispose an effect, removing it and cleaning up all dependencies.
