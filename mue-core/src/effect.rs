@@ -54,6 +54,7 @@ pub(crate) struct EffectInner {
     pub dependencies: Dependencies,
     pub state: EffectState,
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub location: &'static std::panic::Location<'static>,
 }
 
@@ -64,8 +65,7 @@ impl EffectInner {
         signal: SignalId,
         dependencies: Dependencies,
         state: EffectState,
-        #[cfg(debug_assertions)]
-        location: &'static std::panic::Location<'static>,
+        #[cfg(debug_assertions)] location: &'static std::panic::Location<'static>,
     ) -> Self {
         Self {
             callback: Some(callback),
