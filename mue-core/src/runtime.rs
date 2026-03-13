@@ -3,7 +3,7 @@ use std::{
     mem,
 };
 
-use slotmap::SlotMap;
+use slotmap::{Key, SlotMap};
 
 use crate::{
     effect::{Dependencies, EffectId, EffectInner, EffectState},

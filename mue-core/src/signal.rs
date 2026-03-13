@@ -318,4 +318,22 @@ mod test {
             assert!(signal.subscribers.is_empty());
         });
     }
+
+    #[test]
+    fn test_force_trigger() {
+        let count = signal(0);
+        let runs = Rc::new(RefCell::new(0));
+        let runs_clone = runs.clone();
+
+        watch_effect(move || {
+            count.get();
+            *runs_clone.borrow_mut() += 1;
+        });
+
+        assert_eq!(*runs.borrow(), 1);
+
+        // Force trigger should run effect even if value doesn't change
+        count.force_trigger();
+        assert_eq!(*runs.borrow(), 2);
+    }
 }

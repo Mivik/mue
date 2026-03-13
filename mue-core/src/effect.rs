@@ -1,6 +1,6 @@
 use std::{ops::Deref, slice};
 
-use slotmap::new_key_type;
+use slotmap::{new_key_type, Key};
 
 use crate::{
     runtime::Runtime,
@@ -83,6 +83,10 @@ impl Effect {
         Self { id }
     }
 
+    pub fn force_trigger(&self) {
+        Runtime::with(|rt| rt.update(self.id));
+    }
+
     pub fn dispose(self) {
         Runtime::with(|rt| rt.dispose_effect(self.id));
     }
@@ -90,7 +94,10 @@ impl Effect {
 
 pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'static) -> Effect {
     let signal = match prop {
-        Prop::Static(_) => Runtime::with(|rt| ReadSignal::new(rt.null_signal)),
+        Prop::Static(_) => {
+            // Watch with a static prop doesn't make much sense
+            return Effect::new(EffectId::null());
+        }
         Prop::Dynamic(signal) => signal,
     };
     Runtime::with(|rt| {
@@ -106,6 +113,32 @@ pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'stat
         .register(rt);
         rt.signal_mut(signal.id).subscribers.insert(effect_id);
         Effect::new(effect_id)
+    })
+}
+
+pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + 'static) -> Effect {
+    let signal = match prop {
+        Prop::Static(_) => {
+            f(prop);
+            return Effect::new(EffectId::null());
+        }
+        Prop::Dynamic(signal) => signal,
+    };
+    Runtime::with(|rt| {
+        let effect_id = EffectInner::new(
+            Box::new(move |_value| {
+                f(Prop::Dynamic(signal));
+                false
+            }),
+            rt.null_signal,
+            Dependencies::Static(signal.id),
+            EffectState::Dirty,
+        )
+        .register(rt);
+        rt.signal_mut(signal.id).subscribers.insert(effect_id);
+        let effect = Effect::new(effect_id);
+        effect.force_trigger();
+        effect
     })
 }
 
@@ -219,6 +252,35 @@ mod test {
     }
 
     #[test]
+    fn test_watch_prop() {
+        let a = signal(1);
+        let b = signal(10);
+
+        let effect_runs = Rc::new(RefCell::new(0));
+        let effect_runs_clone = effect_runs.clone();
+
+        watch_immediate(Prop::Dynamic(*a), move |_a| {
+            b.get();
+            *effect_runs_clone.borrow_mut() += 1;
+        });
+
+        assert_eq!(*effect_runs.borrow(), 1);
+        a.set(2);
+        assert_eq!(*effect_runs.borrow(), 2);
+        b.set(20);
+        assert_eq!(*effect_runs.borrow(), 2);
+
+        let effect_runs = Rc::new(RefCell::new(0));
+        let effect_runs_clone = effect_runs.clone();
+        let effect = watch_immediate(Prop::Static(1), move |_a| {
+            *effect_runs_clone.borrow_mut() += 1;
+        });
+
+        assert_eq!(*effect_runs.borrow(), 1);
+        effect.dispose();
+    }
+
+    #[test]
     fn test_computed_dependency_chain() {
         let a = signal(1);
         let b = signal(2);
@@ -310,5 +372,28 @@ mod test {
 
         // After batch, memo should reflect new values
         assert_eq!(sum.get(), 30);
+    }
+
+    #[test]
+    fn test_force_trigger() {
+        let count = signal(0);
+        let effect_runs = Rc::new(RefCell::new(0));
+        let effect_runs_clone = effect_runs.clone();
+
+        let effect = watch_effect(move || {
+            count.get();
+            *effect_runs_clone.borrow_mut() += 1;
+        });
+
+        // Initial run
+        assert_eq!(*effect_runs.borrow(), 1);
+
+        // Force trigger should run effect even if dependencies haven't changed
+        effect.force_trigger();
+        assert_eq!(*effect_runs.borrow(), 2);
+
+        // Update should also trigger effect
+        count.set(1);
+        assert_eq!(*effect_runs.borrow(), 3);
     }
 }

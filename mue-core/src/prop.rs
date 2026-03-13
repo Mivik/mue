@@ -1,4 +1,4 @@
-use crate::signal::{Access, ReadSignal};
+use crate::{signal::{Access, ReadSignal}};
 
 #[derive(Clone, Copy)]
 pub enum Prop<T> {
