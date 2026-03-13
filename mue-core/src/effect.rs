@@ -121,14 +121,10 @@ impl Effect {
 }
 
 #[track_caller]
-pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'static) -> Effect {
-    let signal = match prop {
-        Prop::Static(_) => {
-            // Watch with a static prop doesn't make much sense
-            return Effect::new(EffectId::null());
-        }
-        Prop::Dynamic(signal) => signal,
-    };
+pub fn watch<T: 'static>(
+    signal: ReadSignal<T>,
+    mut f: impl FnMut(ReadSignal<T>) + 'static,
+) -> Effect {
     #[cfg(debug_assertions)]
     let location = std::panic::Location::caller();
     Runtime::with(|rt| {
@@ -150,14 +146,10 @@ pub fn watch<T: 'static>(prop: Prop<T>, mut f: impl FnMut(ReadSignal<T>) + 'stat
 }
 
 #[track_caller]
-pub fn watch_immediate<T: 'static>(prop: Prop<T>, mut f: impl FnMut(Prop<T>) + 'static) -> Effect {
-    let signal = match prop {
-        Prop::Static(_) => {
-            f(prop);
-            return Effect::new(EffectId::null());
-        }
-        Prop::Dynamic(signal) => signal,
-    };
+pub fn watch_immediate<T: 'static>(
+    signal: ReadSignal<T>,
+    mut f: impl FnMut(Prop<T>) + 'static,
+) -> Effect {
     #[cfg(debug_assertions)]
     let location = std::panic::Location::caller();
     Runtime::with(|rt| {
@@ -315,7 +307,7 @@ mod test {
         let effect_runs = Rc::new(RefCell::new(0));
         let effect_runs_clone = effect_runs.clone();
 
-        watch(Prop::Dynamic(*a), move |_a| {
+        watch(*a, move |_a| {
             b.get();
             *effect_runs_clone.borrow_mut() += 1;
         });
@@ -335,7 +327,7 @@ mod test {
         let effect_runs = Rc::new(RefCell::new(0));
         let effect_runs_clone = effect_runs.clone();
 
-        watch_immediate(Prop::Dynamic(*a), move |_a| {
+        watch_immediate(*a, move |_a| {
             b.get();
             *effect_runs_clone.borrow_mut() += 1;
         });
@@ -348,7 +340,7 @@ mod test {
 
         let effect_runs = Rc::new(RefCell::new(0));
         let effect_runs_clone = effect_runs.clone();
-        let effect = watch_immediate(Prop::Static(1), move |_a| {
+        let effect = watch_immediate(*signal(1), move |_a| {
             *effect_runs_clone.borrow_mut() += 1;
         });
 
@@ -458,7 +450,7 @@ mod test {
         let effect_runs = Rc::new(RefCell::new(0));
         let effect_runs_clone = effect_runs.clone();
 
-        watch_immediate(Prop::Dynamic(b), move |_| {
+        watch_immediate(b, move |_| {
             b.get();
             *effect_runs_clone.borrow_mut() += 1;
         });
