@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, slice};
+use std::{ops::Deref, slice};
 
 use slotmap::{new_key_type, Key};
 
@@ -17,10 +17,6 @@ new_key_type! {
 
 pub(crate) type EffectCallback = Box<dyn FnMut(&mut Option<Value>) -> bool>;
 pub(crate) type CleanupCallback = Box<dyn FnOnce()>;
-
-thread_local! {
-    pub(crate) static CURRENT_EFFECT: RefCell<Option<EffectId>> = const { RefCell::new(None) };
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EffectState {
@@ -201,13 +197,11 @@ pub fn watch_effect(mut f: impl FnMut() + 'static) -> Effect {
 /// });
 /// ```
 pub fn on_cleanup(f: impl FnOnce() + 'static) {
-    CURRENT_EFFECT.with_borrow(|current| {
-        if let Some(effect_id) = *current {
-            Runtime::with(|rt| {
-                if let Some(effect) = rt.effects.borrow_mut().get_mut(effect_id) {
-                    effect.cleanups.push(Box::new(f));
-                }
-            });
+    Runtime::with(|rt| {
+        if let Some(effect_id) = *rt.current_effect.borrow() {
+            if let Some(effect) = rt.effects.borrow_mut().get_mut(effect_id) {
+                effect.cleanups.push(Box::new(f));
+            }
         }
     });
 }

@@ -46,6 +46,7 @@ pub(crate) struct Runtime {
 
     pub null_signal: SignalId,
 
+    pub current_effect: RefCell<Option<EffectId>>,
     tracker: RefCell<Option<DependencyTracker>>,
 
     batch_depth: Cell<usize>,
@@ -63,6 +64,7 @@ impl Runtime {
 
             null_signal,
 
+            current_effect: RefCell::default(),
             tracker: RefCell::default(),
 
             batch_depth: Cell::new(0),
@@ -116,8 +118,7 @@ impl Runtime {
         };
         let prev_tracker = self.tracker.replace(tracker);
 
-        // Set current effect for on_cleanup
-        let prev_effect = crate::effect::CURRENT_EFFECT.replace(Some(effect_id));
+        let prev_effect = self.current_effect.replace(Some(effect_id));
 
         let signal_id = effect.signal;
         let mut value = self.signal_mut(signal_id).value.take();
@@ -126,6 +127,8 @@ impl Runtime {
 
         let updated = callback(&mut value);
         self.signal_mut(signal_id).value = value;
+
+        self.current_effect.replace(prev_effect);
 
         // TODO: optimize, avoid unnecessary re-tracking
         let mut effect = self.effect_mut(effect_id);
@@ -143,9 +146,6 @@ impl Runtime {
             effect.dependencies = Dependencies::Dynamic(tracker.dependencies);
         }
         drop(effect);
-
-        // Restore previous effect
-        crate::effect::CURRENT_EFFECT.replace(prev_effect);
 
         if updated {
             self.on_update(signal_id);
