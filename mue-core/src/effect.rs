@@ -192,7 +192,7 @@ pub fn watch_effect(mut f: impl FnMut() + 'static) -> Effect {
 /// use mue_core::prelude::*;
 ///
 /// let count = signal(0);
-/// watch_effect(|| {
+/// watch_effect(move || {
 ///     let id = 42; // Some resource ID
 ///     on_cleanup(move || {
 ///         println!("Cleaning up resource {}", id);
