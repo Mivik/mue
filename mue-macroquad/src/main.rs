@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 use mue_core::prelude::*;
-use mue_macroquad::{node::*, styled, App, Style};
-use taffy::Dimension;
+use mue_macroquad::{node::*, App, Style};
+use taffy::{AlignItems, Dimension, FlexDirection};
 
 fn main() {
     macroquad::Window::from_config(
@@ -22,19 +22,23 @@ async fn the_main() {
 
     let mut sprites = vec![];
     for i in 0..4 {
-        sprites.push(styled(
-            Style::new().width(Dimension::percent(1.)).height(
-                time.map(move |t| Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)),
-            ),
-            sprite,
-        ));
+        sprites.push(
+            Style::new()
+                .width(Dimension::auto())
+                .height(
+                    time.map(move |t| Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)),
+                )
+                .flex_grow(1.)
+                .wrap(sprite),
+        );
     }
-    let root = styled(
-        Style::new()
-            .width(Dimension::percent(1.))
-            .height(Dimension::percent(1.)),
-        || flexbox(sprites),
-    );
+
+    let root = Style::new()
+        .flex_direction(FlexDirection::Row)
+        .width(Dimension::percent(1.))
+        .height(Dimension::percent(1.))
+        .justify_items(AlignItems::Stretch)
+        .wrap(|| flexbox(sprites));
 
     let app = App::new(root);
 

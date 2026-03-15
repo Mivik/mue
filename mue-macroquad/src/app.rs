@@ -46,7 +46,6 @@ impl App {
     }
 
     pub fn frame(&self) {
-        Runtime::with(|rt| rt.node(self.root_node.id).layout_ids.get_clone());
         batch(|| {
             if let Some(layout_id) = self.layout_id.get() {
                 Runtime::with(|rt| {

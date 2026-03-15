@@ -60,6 +60,11 @@ macro_rules! define_style {
                     )*
                 }
             }
+
+            pub fn wrap(self, f: impl FnOnce() -> Node) -> Node {
+                STYLE.with_borrow_mut(|s| s.merge(self));
+                f()
+            }
         }
     };
 }
@@ -67,6 +72,20 @@ macro_rules! define_style {
 define_style! {
     width: Dimension = Dimension::auto();
     height: Dimension = Dimension::auto();
+
+    align_items: Option<taffy::AlignItems>;
+    align_self: Option<taffy::AlignSelf>;
+    justify_items: Option<taffy::AlignItems>;
+    justify_self: Option<taffy::AlignSelf>;
+    align_content: Option<taffy::AlignContent>;
+    justify_content: Option<taffy::JustifyContent>;
+
+    flex_direction: taffy::FlexDirection;
+    flex_wrap: taffy::FlexWrap;
+
+    flex_basis: Dimension = Dimension::auto();
+    flex_grow: f32 = 0.0;
+    flex_shrink: f32 = 1.0;
 }
 
 impl Style {
@@ -79,6 +98,21 @@ impl Style {
         let size = size(style.width, style.height);
         computed(move || taffy::Style {
             size: size.get(),
+
+            align_items: style.align_items.get_clone(),
+            align_self: style.align_self.get_clone(),
+            justify_items: style.justify_items.get_clone(),
+            justify_self: style.justify_self.get_clone(),
+            align_content: style.align_content.get_clone(),
+            justify_content: style.justify_content.get_clone(),
+
+            flex_direction: style.flex_direction.get_clone(),
+            flex_wrap: style.flex_wrap.get_clone(),
+
+            flex_basis: style.flex_basis.get_clone(),
+            flex_grow: style.flex_grow.get_clone(),
+            flex_shrink: style.flex_shrink.get_clone(),
+
             ..Default::default()
         })
     }
@@ -117,7 +151,7 @@ pub fn use_layout(mut style: Style) -> Layout {
     NodeContext::with_mut(|ctx| {
         let layout_id =
             Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(style.get_clone()).unwrap());
-        watch(Prop::Dynamic(style), move |_| {
+        watch(style, move |_| {
             Runtime::with(|rt| {
                 rt.taffy
                     .borrow_mut()
@@ -133,9 +167,4 @@ pub fn use_layout(mut style: Style) -> Layout {
 
         Layout::new(layout_id)
     })
-}
-
-pub fn styled(style: Style, f: impl FnOnce() -> Node) -> Node {
-    STYLE.with_borrow_mut(|s| s.merge(style));
-    f()
 }

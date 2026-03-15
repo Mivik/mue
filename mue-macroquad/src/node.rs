@@ -25,7 +25,6 @@ pub(crate) struct NodeInner {
     pub hooks: Hooks,
     pub children: Vec<Node>,
     pub layout_ids: Prop<SmallVec<[taffy::NodeId; 1]>>,
-    pub style_effect: Effect,
 }
 
 impl NodeInner {
@@ -35,7 +34,6 @@ impl NodeInner {
             hooks: context.hooks,
             children: context.children,
             layout_ids: context.layout_ids,
-            style_effect: Effect::null(),
         }
     }
 
@@ -59,7 +57,7 @@ impl NodeContext {
         })
     }
 
-    pub(crate) fn set_children( children: Vec<Node>) {
+    pub(crate) fn set_children(children: Vec<Node>) {
         Self::with_mut(|ctx| ctx.children = children);
     }
 }
@@ -87,6 +85,17 @@ impl Node {
             node.hooks.render.invoke(&());
             for child in &node.children {
                 child.render();
+            }
+        });
+    }
+
+    pub fn dispose(self) {
+        Runtime::with(|rt| {
+            if let Some(node) = rt.nodes.borrow_mut().remove(self.id) {
+                node.scope.dispose();
+                for child in node.children {
+                    child.dispose();
+                }
             }
         });
     }

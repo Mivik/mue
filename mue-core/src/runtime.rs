@@ -6,8 +6,7 @@ use std::{
 use slotmap::{Key, SlotMap};
 
 use crate::{
-    effect::{Dependencies, EffectId, EffectInner, EffectState},
-    signal::{SignalId, SignalInner},
+    effect::{Dependencies, EffectId, EffectInner, EffectState}, scope::{ScopeId, ScopeInner}, signal::{SignalId, SignalInner}
 };
 
 thread_local! {
@@ -43,6 +42,7 @@ impl DependencyTracker {
 pub(crate) struct Runtime {
     pub signals: RefCell<SlotMap<SignalId, SignalInner>>,
     pub effects: RefCell<SlotMap<EffectId, EffectInner>>,
+    pub scopes: RefCell<SlotMap<ScopeId, ScopeInner>>,
 
     pub null_signal: SignalId,
 
@@ -61,6 +61,7 @@ impl Runtime {
         Self {
             signals,
             effects: RefCell::new(SlotMap::with_key()),
+            scopes: RefCell::new(SlotMap::with_key()),
 
             null_signal,
 
@@ -134,7 +135,6 @@ impl Runtime {
 
         self.current_effect.replace(prev_effect);
 
-        // TODO: optimize, avoid unnecessary re-tracking
         let mut effect = self.effect_mut(effect_id);
         effect.state = EffectState::Clean;
         effect.callback = Some(callback);

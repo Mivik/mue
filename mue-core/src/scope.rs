@@ -1,31 +1,31 @@
 use std::{cell::RefCell, mem};
 
+use slotmap::new_key_type;
+
 use crate::{effect::EffectId, runtime::Runtime, signal::SignalId};
 
+new_key_type! {
+    pub(crate) struct ScopeId;
+}
+
 thread_local! {
-    pub(crate) static CURRENT_SCOPE: RefCell<Option<Scope>> = const { RefCell::new(None) };
+    pub(crate) static CURRENT_SCOPE: RefCell<Option<ScopeInner>> = const { RefCell::new(None) };
 }
 
 #[derive(Default)]
-pub struct Scope {
+pub(crate) struct ScopeInner {
     pub(crate) effects: Vec<EffectId>,
     pub(crate) signals: Vec<SignalId>,
+    pub(crate) subscopes: Vec<ScopeId>,
 }
 
-impl Scope {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn run<R>(&mut self, f: impl FnOnce() -> R) -> R {
-        let prev_scope = CURRENT_SCOPE.replace(Some(mem::take(self)));
-        let result = f();
-        *self = CURRENT_SCOPE.replace(prev_scope).unwrap();
-        result
-    }
-
-    pub fn dispose(self) {
-        let Scope { effects, signals } = self;
+impl ScopeInner {
+    fn dispose(self) {
+        let ScopeInner {
+            effects,
+            signals,
+            subscopes,
+        } = self;
         Runtime::with(|rt| {
             for effect_id in effects {
                 rt.dispose_effect(effect_id);
@@ -33,8 +33,47 @@ impl Scope {
             for signal_id in signals {
                 rt.dispose_signal(signal_id);
             }
+            for subscope_id in subscopes {
+                let scope = rt.scopes.borrow_mut().remove(subscope_id);
+                if let Some(scope) = scope {
+                    scope.dispose();
+                }
+            }
         });
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct Scope {
+    id: ScopeId,
+}
+
+impl Scope {
+    pub(crate) fn new(id: ScopeId) -> Self {
+        Self { id }
+    }
+
+    pub fn dispose(self) {
+        Runtime::with(|rt| {
+            let scope = rt.scopes.borrow_mut().remove(self.id);
+            if let Some(scope) = scope {
+                scope.dispose();
+            }
+        });
+    }
+}
+
+pub fn create_scope(f: impl FnOnce()) -> Scope {
+    let prev_scope = CURRENT_SCOPE.replace(Some(ScopeInner::default()));
+    f();
+    let scope = CURRENT_SCOPE.replace(prev_scope).unwrap();
+    let id = Runtime::with(|rt| rt.scopes.borrow_mut().insert(scope));
+    CURRENT_SCOPE.with_borrow_mut(|parent| {
+        if let Some(parent) = parent {
+            parent.subscopes.push(id);
+        }
+    });
+    Scope::new(id)
 }
 
 #[cfg(test)]
@@ -49,8 +88,7 @@ mod test {
         let runs = Rc::new(RefCell::new(0));
         let runs_clone = runs.clone();
 
-        let mut scope = Scope::new();
-        scope.run(|| {
+        let scope = create_scope(|| {
             watch_effect(move || {
                 count.get();
                 *runs_clone.borrow_mut() += 1;
@@ -79,15 +117,13 @@ mod test {
 
         let count = signal(0);
 
-        let mut scope_outer = Scope::new();
-        scope_outer.run(|| {
+        let scope_outer = create_scope(|| {
             watch_effect(move || {
                 count.get();
                 *outer_clone.borrow_mut() += 1;
             });
 
-            let mut scope_inner = Scope::new();
-            scope_inner.run(|| {
+            let scope_inner = create_scope(|| {
                 watch_effect(move || {
                     count.get();
                     *inner_clone.borrow_mut() += 1;
@@ -111,15 +147,35 @@ mod test {
     }
 
     #[test]
-    fn test_scope_with_computed() {
-        let mut scope = Scope::new();
-        let result = scope.run(|| {
-            let a = signal(2);
-            let b = signal(3);
-            let sum = computed(move || a.get() + b.get());
-            sum.get()
+    fn test_scope_cascade_dispose() {
+        let runs = Rc::new(RefCell::new(0));
+        let runs_clone = runs.clone();
+
+        let count = signal(0);
+
+        let scope_outer = create_scope(|| {
+            watch_effect(move || {
+                count.get();
+                *runs_clone.borrow_mut() += 1;
+            });
+
+            let scope_inner = create_scope({
+                let runs_clone = runs.clone();
+                || {
+                    watch_effect(move || {
+                        count.get();
+                        *runs_clone.borrow_mut() += 1;
+                    });
+                }
+            });
+            // Both effects run
+            assert_eq!(*runs.borrow(), 2);
+            scope_inner.dispose();
         });
-        assert_eq!(result, 5);
-        // Computed is disposed when scope drops
+        scope_outer.dispose();
+
+        count.set(1);
+        // No effects should run
+        assert_eq!(*runs.borrow(), 2);
     }
 }

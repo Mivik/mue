@@ -20,7 +20,7 @@ pub fn flexbox(children: Vec<Node>) -> Node {
     Node::build(move || {
         let layout = use_layout(Style::new());
         let layout_ids = collect_layout_ids(&children);
-        watch_immediate(Prop::Dynamic(layout_ids), move |_| {
+        watch_immediate(layout_ids, move |_| {
             Runtime::with(|rt| {
                 let mut taffy = rt.taffy.borrow_mut();
                 let layout_id = layout.id();
