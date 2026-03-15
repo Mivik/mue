@@ -23,22 +23,26 @@ async fn the_main() {
     let mut sprites = vec![];
     for i in 0..4 {
         sprites.push(
-            Style::new()
-                .width(Dimension::auto())
-                .height(
-                    time.map(move |t| Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)),
-                )
-                .flex_grow(1.)
-                .wrap(sprite),
+            sprite().styled(
+                Style::new()
+                    .width(Dimension::auto())
+                    .height(
+                        time.map(move |t| {
+                            Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
+                        }),
+                    )
+                    .flex_grow(1.),
+            ),
         );
     }
 
-    let root = Style::new()
-        .flex_direction(FlexDirection::Row)
-        .width(Dimension::percent(1.))
-        .height(Dimension::percent(1.))
-        .justify_items(AlignItems::Stretch)
-        .wrap(|| flexbox(sprites));
+    let root = flexbox(sprites).styled(
+        Style::new()
+            .flex_direction(FlexDirection::Row)
+            .width(Dimension::percent(1.))
+            .height(Dimension::percent(1.))
+            .justify_items(AlignItems::Stretch),
+    );
 
     let app = App::new(root);
 

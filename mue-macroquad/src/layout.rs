@@ -1,10 +1,8 @@
-use std::{cell::RefCell, mem};
-
 use macroquad::math::Rect;
 use mue_core::prelude::*;
 use taffy::Dimension;
 
-use crate::{node::NodeContext, runtime::Runtime, Node};
+use crate::{node::NodeInner, runtime::Runtime};
 
 pub fn size<S: Clone + PartialEq + 'static>(
     width: Prop<S>,
@@ -60,11 +58,6 @@ macro_rules! define_style {
                     )*
                 }
             }
-
-            pub fn wrap(self, f: impl FnOnce() -> Node) -> Node {
-                STYLE.with_borrow_mut(|s| s.merge(self));
-                f()
-            }
         }
     };
 }
@@ -118,6 +111,7 @@ impl Style {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Layout {
     id: taffy::NodeId,
 }
@@ -140,31 +134,19 @@ impl Layout {
     }
 }
 
-thread_local! {
-    static STYLE: RefCell<Style> = RefCell::default();
-}
+pub fn use_layout() -> Layout {
+    NodeInner::with_mut(|node| {
+        if node.layout.is_some() {
+            panic!("use_layout can only be called once per node");
+        }
 
-pub fn use_layout(mut style: Style) -> Layout {
-    STYLE.with_borrow_mut(|s| style.merge(mem::take(s)));
-    let style = style.build();
-
-    NodeContext::with_mut(|ctx| {
         let layout_id =
-            Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(style.get_clone()).unwrap());
-        watch(style, move |_| {
-            Runtime::with(|rt| {
-                rt.taffy
-                    .borrow_mut()
-                    .set_style(layout_id, style.get_clone())
-                    .unwrap();
-            });
-        });
+            Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(Default::default()).unwrap());
+        let layout = Layout::new(layout_id);
 
-        ctx.layout_ids
-            .get_mut()
-            .expect("cannot mix use_layout and custom layout ids")
-            .push(layout_id);
-
-        Layout::new(layout_id)
+        node.layout = Some(layout);
+        // Setup style effect
+        node.apply_style(Style::new());
+        layout
     })
 }

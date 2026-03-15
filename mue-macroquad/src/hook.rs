@@ -1,4 +1,4 @@
-use crate::node::NodeContext;
+use crate::node::NodeInner;
 
 #[derive(Default)]
 pub(crate) struct HookFn<T> {
@@ -6,10 +6,6 @@ pub(crate) struct HookFn<T> {
 }
 
 impl<T: 'static> HookFn<T> {
-    pub fn new() -> Self {
-        Self { callback: None }
-    }
-
     pub fn append(&mut self, callback: impl Fn(&T) + 'static) {
         if let Some(existing) = self.callback.take() {
             self.callback = Some(Box::new(move |arg| {
@@ -34,5 +30,5 @@ pub(crate) struct Hooks {
 }
 
 pub fn on_render(callback: impl Fn(&()) + 'static) {
-    NodeContext::with_mut(|ctx| ctx.hooks.render.append(callback));
+    NodeInner::with_mut(|node| node.hooks.render.append(callback));
 }
