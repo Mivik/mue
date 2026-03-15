@@ -111,6 +111,10 @@ impl Effect {
         }
     }
 
+    pub fn is_null(&self) -> bool {
+        self.id.is_null()
+    }
+
     pub fn force_trigger(&self) {
         Runtime::with(|rt| rt.update(self.id));
     }

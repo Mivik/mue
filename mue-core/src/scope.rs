@@ -1,6 +1,6 @@
-use std::{cell::RefCell, mem};
+use std::cell::RefCell;
 
-use slotmap::new_key_type;
+use slotmap::{new_key_type, Key};
 
 use crate::{effect::EffectId, runtime::Runtime, signal::SignalId};
 
@@ -51,6 +51,16 @@ pub struct Scope {
 impl Scope {
     pub(crate) fn new(id: ScopeId) -> Self {
         Self { id }
+    }
+
+    pub fn null() -> Self {
+        Self {
+            id: ScopeId::null(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.id.is_null()
     }
 
     pub fn dispose(self) {
