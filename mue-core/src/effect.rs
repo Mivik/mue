@@ -6,7 +6,7 @@ use crate::{
     runtime::Runtime,
     scope::CURRENT_SCOPE,
     signal::{ReadSignal, SignalId, SignalInner, Value},
-    Prop,
+    Disposable, Prop,
 };
 
 new_key_type! {
@@ -118,8 +118,10 @@ impl Effect {
     pub fn force_trigger(&self) {
         Runtime::with(|rt| rt.update(self.id));
     }
+}
 
-    pub fn dispose(self) {
+impl Disposable for Effect {
+    fn dispose(&self) {
         Runtime::with(|rt| rt.dispose_effect(self.id));
     }
 }

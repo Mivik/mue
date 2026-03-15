@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashSet, marker::PhantomData, ops::Deref};
 
 use slotmap::new_key_type;
 
-use crate::{effect::EffectId, runtime::Runtime, scope::CURRENT_SCOPE};
+use crate::{effect::EffectId, runtime::Runtime, scope::CURRENT_SCOPE, Disposable};
 
 new_key_type! {
     pub(crate) struct SignalId;
@@ -101,17 +101,17 @@ impl<T> ReadSignal<T> {
         f(&mut rt.signal_mut(self.id))
     }
 
-    /// Dispose this signal, cleaning up all resources and dependencies.
-    /// After disposal, the signal should not be used.
-    pub fn dispose(self) {
-        Runtime::with(|rt| rt.dispose_signal(self.id));
-    }
-
     pub fn map<U: PartialEq + 'static>(self, mut f: impl FnMut(T) -> U + 'static) -> ReadSignal<U>
     where
         T: Clone + 'static,
     {
         crate::effect::computed(move || f(self.get_clone()))
+    }
+}
+
+impl<T> Disposable for ReadSignal<T> {
+    fn dispose(&self) {
+        Runtime::with(|rt| rt.dispose_signal(self.id));
     }
 }
 

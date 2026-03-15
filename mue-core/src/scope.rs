@@ -6,6 +6,7 @@ use crate::{
     effect::{Effect, EffectId},
     runtime::Runtime,
     signal::{ReadSignal, SignalId},
+    Disposable,
 };
 
 new_key_type! {
@@ -23,8 +24,8 @@ pub(crate) struct ScopeInner {
     pub(crate) subscopes: Vec<ScopeId>,
 }
 
-impl ScopeInner {
-    fn dispose(self) {
+impl Disposable for ScopeInner {
+    fn dispose(&self) {
         let ScopeInner {
             effects,
             signals,
@@ -32,13 +33,13 @@ impl ScopeInner {
         } = self;
         Runtime::with(|rt| {
             for effect_id in effects {
-                rt.dispose_effect(effect_id);
+                rt.dispose_effect(*effect_id);
             }
             for signal_id in signals {
-                rt.dispose_signal(signal_id);
+                rt.dispose_signal(*signal_id);
             }
             for subscope_id in subscopes {
-                let scope = rt.scopes.borrow_mut().remove(subscope_id);
+                let scope = rt.scopes.borrow_mut().remove(*subscope_id);
                 if let Some(scope) = scope {
                     scope.dispose();
                 }
@@ -78,8 +79,10 @@ impl Scope {
             rt.scopes.borrow_mut()[self.id].effects.push(effect.id);
         });
     }
+}
 
-    pub fn dispose(self) {
+impl Disposable for Scope {
+    fn dispose(&self) {
         Runtime::with(|rt| {
             let scope = rt.scopes.borrow_mut().remove(self.id);
             if let Some(scope) = scope {
