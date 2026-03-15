@@ -92,7 +92,7 @@ impl EffectInner {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Effect {
-    id: EffectId,
+    pub(crate) id: EffectId,
 }
 
 impl Effect {

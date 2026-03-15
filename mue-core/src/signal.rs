@@ -86,8 +86,25 @@ impl<T> ReadSignal<T> {
         }
     }
 
+    pub fn null() -> Self {
+        Self {
+            id: Runtime::with(|rt| rt.null_signal),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        Runtime::with(|rt| self.id == rt.null_signal)
+    }
+
     fn with_inner_mut<R>(self, rt: &Runtime, f: impl FnOnce(&mut SignalInner) -> R) -> R {
         f(&mut rt.signal_mut(self.id))
+    }
+
+    /// Dispose this signal, cleaning up all resources and dependencies.
+    /// After disposal, the signal should not be used.
+    pub fn dispose(self) {
+        Runtime::with(|rt| rt.dispose_signal(self.id));
     }
 
     pub fn map<U: PartialEq + 'static>(self, mut f: impl FnMut(T) -> U + 'static) -> ReadSignal<U>
@@ -216,12 +233,6 @@ impl<T: 'static> Signal<T> {
                 f(inner.value.as_mut().unwrap().downcast_mut::<T>().unwrap())
             })
         })
-    }
-
-    /// Dispose this signal, cleaning up all resources and dependencies.
-    /// After disposal, the signal should not be used.
-    pub fn dispose(self) {
-        Runtime::with(|rt| rt.dispose_signal(self.id));
     }
 }
 

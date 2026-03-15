@@ -2,7 +2,11 @@ use std::cell::RefCell;
 
 use slotmap::{new_key_type, Key};
 
-use crate::{effect::EffectId, runtime::Runtime, signal::SignalId};
+use crate::{
+    effect::{Effect, EffectId},
+    runtime::Runtime,
+    signal::{ReadSignal, SignalId},
+};
 
 new_key_type! {
     pub(crate) struct ScopeId;
@@ -61,6 +65,18 @@ impl Scope {
 
     pub fn is_null(&self) -> bool {
         self.id.is_null()
+    }
+
+    pub fn push_signal<T>(&self, signal: ReadSignal<T>) {
+        Runtime::with(|rt| {
+            rt.scopes.borrow_mut()[self.id].signals.push(signal.id);
+        });
+    }
+
+    pub fn push_effect(&self, effect: Effect) {
+        Runtime::with(|rt| {
+            rt.scopes.borrow_mut()[self.id].effects.push(effect.id);
+        });
     }
 
     pub fn dispose(self) {
