@@ -2,16 +2,14 @@ mod children;
 mod flexbox;
 mod sprite;
 
-pub use children::{Children, IntoChildren, KeyedChildren, StaticChildren};
+pub use children::{join_children, map_keyed, show_if, Children, IntoChildren};
 pub use flexbox::flexbox;
 pub use sprite::sprite;
 
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{cell::RefCell, ops::Deref};
 
 use mue_core::{
-    effect::{watch_effect, Effect},
-    signal::{Access, ReadSignal},
-    Disposable, Owned, Scope,
+    Disposable, Owned, Prop, Scope, effect::{Effect, watch_effect}, signal::{Access, ReadSignal}
 };
 use slotmap::new_key_type;
 
@@ -35,7 +33,7 @@ pub(crate) struct NodeInner {
     style_signal: Owned<ReadSignal<taffy::Style>>,
     style_effect: Owned<Effect>,
 
-    children: Option<Rc<dyn Children>>,
+    children: Owned<Children>,
     layout_children_effect: Owned<Effect>,
 }
 
@@ -50,7 +48,7 @@ impl Default for NodeInner {
             style_signal: ReadSignal::null().owned(),
             style_effect: Effect::null().owned(),
 
-            children: None,
+            children: ReadSignal::null().owned(),
             layout_children_effect: Effect::null().owned(),
         }
     }
@@ -72,30 +70,35 @@ impl NodeInner {
         let Some(layout) = self.layout else {
             return;
         };
-        let Some(children) = self.children.clone() else {
+        let children = *self.children;
+        if children.is_null() {
             return;
-        };
-        self.layout_children_effect = self.scope.run(|| {
-            watch_effect(move || {
-                Runtime::with(|rt| {
-                    let children = children.get_clone();
-                    let mut taffy = rt.taffy.borrow_mut();
-                    taffy.remove_children_range(layout.id(), ..).unwrap();
-                    for child_layout in children.iter().filter_map(|node| rt.node(node.id).layout) {
-                        taffy.add_child(layout.id(), child_layout.id()).unwrap();
-                    }
-                });
+        }
+        self.layout_children_effect = self
+            .scope
+            .run(|| {
+                watch_effect(move || {
+                    Runtime::with(|rt| {
+                        let children = children.get_clone();
+                        let mut taffy = rt.taffy.borrow_mut();
+                        taffy.remove_children_range(layout.id(), ..).unwrap();
+                        for child_layout in
+                            children.iter().filter_map(|node| rt.node(node.id).layout)
+                        {
+                            taffy.add_child(layout.id(), child_layout.id()).unwrap();
+                        }
+                    });
+                })
             })
-        })
-        .owned();
+            .owned();
     }
 
-    pub fn set_children(children: Rc<dyn Children>) {
+    pub fn set_children(children: Owned<Children>) {
         Self::with_mut(|node| {
-            if node.children.is_some() {
+            if !node.children.is_null() {
                 panic!("cannot set children of a node more than once");
             }
-            node.children = Some(children);
+            node.children = children;
             node.check_layout_children_effect();
         });
     }
@@ -137,8 +140,8 @@ impl NodeRef {
         Runtime::with(|rt| {
             let node = rt.node(self.id);
             node.hooks.render.invoke(&());
-            if let Some(children) = &node.children {
-                for child in children.get_clone().iter() {
+            if !node.children.is_null() {
+                for child in node.children.get_clone().iter() {
                     child.render();
                 }
             }
@@ -153,16 +156,14 @@ impl Disposable for NodeRef {
                 return;
             };
             node.scope.dispose();
-            if let Some(children) = &node.children {
-                for child in children.get_clone().iter() {
-                    child.dispose();
-                }
-            }
             if let Some(layout) = node.layout {
                 rt.taffy.borrow_mut().remove(layout.id()).unwrap();
             }
-            if let Some(children) = &node.children {
-                children.dispose();
+            if !node.children.is_null() {
+                for child in node.children.get_clone().iter() {
+                    child.dispose();
+                }
+                node.children.dispose();
             }
         });
     }
@@ -192,6 +193,10 @@ impl Node {
             rt.node_mut(self.id).apply_style(style);
         });
         self
+    }
+
+    pub fn show_if(self, condition: impl Into<Prop<bool>>) -> Owned<Children> {
+        children::show_if(condition, self)
     }
 }
 

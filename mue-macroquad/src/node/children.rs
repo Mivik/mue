@@ -4,135 +4,153 @@ use mue_core::{
     effect::computed,
     prelude::current_scope,
     signal::{Access, ReadSignal},
-    Disposable, Prop,
+    Disposable, Owned, Prop,
 };
 
 use crate::{node::Node, NodeRef};
 
-pub trait Children: Access<Value = Rc<[NodeRef]>> + Disposable {}
+pub type Children = ReadSignal<Rc<[NodeRef]>>;
 
 pub trait IntoChildren {
-    fn into_children(self) -> Rc<dyn Children>;
+    fn into_children(self) -> Owned<Children>;
 }
 
-impl<T: Children + 'static> IntoChildren for T {
-    fn into_children(self) -> Rc<dyn Children> {
-        Rc::new(self)
+impl IntoChildren for Owned<Children> {
+    fn into_children(self) -> Owned<Children> {
+        self
     }
 }
 
-pub struct StaticChildren {
-    nodes: Box<[Node]>,
-    node_refs: Rc<[NodeRef]>,
-}
-
-impl StaticChildren {
-    pub fn new(nodes: Box<[Node]>) -> Self {
-        let node_refs = nodes.iter().map(|node| **node).collect();
-        Self { nodes, node_refs }
+impl IntoChildren for Node {
+    fn into_children(self) -> Owned<Children> {
+        computed(move || Rc::from([*self])).owned()
     }
 }
 
-impl Access for StaticChildren {
-    type Value = Rc<[NodeRef]>;
-
-    fn get_clone(&self) -> Self::Value {
-        self.node_refs.clone()
-    }
-}
-
-impl Disposable for StaticChildren {
-    fn dispose(&self) {
-        for child in self.nodes.iter() {
-            child.dispose();
+macro_rules! impl_static_children {
+    (@inner $ty:ty) => {
+        fn into_children(self) -> Owned<Children> {
+            let node_refs: Rc<[NodeRef]> = self.iter().map(|it| **it).collect();
+            computed(move || {
+                // Explicitly move self into closure
+                let _ = &self;
+                node_refs.clone()
+            })
+            .owned()
         }
-    }
+    };
+    ($ty:ty) => {
+        impl IntoChildren for $ty {
+            impl_static_children!(@inner $ty);
+        }
+    };
 }
 
-impl Children for StaticChildren {}
-
-impl IntoChildren for Box<[Node]> {
-    fn into_children(self) -> Rc<dyn Children> {
-        Rc::new(StaticChildren::new(self))
-    }
-}
-
-impl IntoChildren for Vec<Node> {
-    fn into_children(self) -> Rc<dyn Children> {
-        Rc::new(StaticChildren::new(self.into()))
-    }
-}
+impl_static_children!(Rc<[Node]>);
+impl_static_children!(Vec<Node>);
 
 impl<const N: usize> IntoChildren for [Node; N] {
-    fn into_children(self) -> Rc<dyn Children> {
-        Rc::new(StaticChildren::new(self.into()))
-    }
+    impl_static_children!(@inner [Node; N]);
 }
 
-pub struct KeyedChildren {
-    node_refs: ReadSignal<Rc<[NodeRef]>>,
-}
-
-impl KeyedChildren {
-    pub fn new<T, K>(
-        list: impl Into<Prop<Rc<[T]>>>,
-        key_fn: impl Fn(&T) -> K + 'static,
-        node_fn: impl Fn(&T) -> Node + 'static,
-    ) -> Self
+pub fn map_keyed<T, K>(
+    list: impl Into<Prop<Rc<[T]>>>,
+    key_fn: impl Fn(&T) -> K + 'static,
+    node_fn: impl Fn(&T) -> Node + 'static,
+) -> Owned<Children>
+where
+    T: 'static,
+    K: Hash + Eq + 'static,
+{
+    fn inner<T, K>(
+        list: Prop<Rc<[T]>>,
+        key_fn: Box<dyn Fn(&T) -> K + 'static>,
+        node_fn: Box<dyn Fn(&T) -> Node + 'static>,
+    ) -> Owned<Children>
     where
         T: 'static,
         K: Hash + Eq + 'static,
     {
-        fn inner<T, K>(
-            list: Prop<Rc<[T]>>,
-            key_fn: Box<dyn Fn(&T) -> K + 'static>,
-            node_fn: Box<dyn Fn(&T) -> Node + 'static>,
-        ) -> KeyedChildren
-        where
-            T: 'static,
-            K: Hash + Eq + 'static,
-        {
-            let owner_scope = current_scope();
+        let owner_scope = current_scope();
 
-            let mut node_cache: HashMap<K, Node> = HashMap::new();
-            let node_refs = computed(move || {
-                let list = list.get_clone();
-                let mut new_nodes = Vec::with_capacity(list.len());
-                let mut prev_node_cache = mem::take(&mut node_cache);
-                for value in list.iter() {
-                    let key = key_fn(value);
-                    let node = prev_node_cache
-                        .remove(&key)
-                        .unwrap_or_else(|| owner_scope.run(|| node_fn(value)));
-                    new_nodes.push(*node);
-                    node_cache.insert(key, node);
-                }
-                new_nodes.into()
-            });
+        let mut node_cache: HashMap<K, Node> = HashMap::new();
+        computed(move || {
+            let list = list.get_clone();
+            let mut new_nodes = Vec::with_capacity(list.len());
+            let mut prev_node_cache = mem::take(&mut node_cache);
+            for value in list.iter() {
+                let key = key_fn(value);
+                let node = prev_node_cache
+                    .remove(&key)
+                    .unwrap_or_else(|| owner_scope.run(|| node_fn(value)));
+                new_nodes.push(*node);
+                node_cache.insert(key, node);
+            }
+            new_nodes.into()
+        })
+        .owned()
+    }
 
-            KeyedChildren { node_refs }
+    inner(list.into(), Box::new(key_fn), Box::new(node_fn))
+}
+
+pub fn show_if(condition: impl Into<Prop<bool>>, node: Node) -> Owned<Children> {
+    fn inner(condition: Prop<bool>, node: Node) -> Owned<Children> {
+        let refs = Rc::<[NodeRef]>::from([*node]);
+        computed(move || {
+            // Explicitly moves node into this closure
+            let _ = &node;
+            if condition.get() {
+                refs.clone()
+            } else {
+                Rc::default()
+            }
+        })
+        .owned()
+    }
+
+    inner(condition.into(), node)
+}
+
+pub fn join_children(children: impl Into<Rc<[Owned<Children>]>>) -> Owned<Children> {
+    fn inner(children: Rc<[Owned<Children>]>) -> Owned<Children> {
+        let mut buffer = Vec::with_capacity(children.len());
+        computed(move || {
+            buffer.clear();
+            buffer.extend(children.iter().map(|it| it.get_clone()));
+            buffer.iter().flat_map(|it| it.iter().copied()).collect()
+        })
+        .owned()
+    }
+
+    inner(children.into())
+}
+
+macro_rules! impl_join {
+    ($($p:ident)*) => {
+        #[allow(non_snake_case)]
+        impl<$($p: IntoChildren),*> IntoChildren for ($($p,)*) {
+            fn into_children(self) -> Owned<Children> {
+                let ($($p,)*) = self;
+                join_children([$($p.into_children()),*])
+            }
         }
-
-        inner(list.into(), Box::new(key_fn), Box::new(node_fn))
-    }
+    };
 }
 
-impl Access for KeyedChildren {
-    type Value = Rc<[NodeRef]>;
-
-    fn get_clone(&self) -> Self::Value {
-        self.node_refs.get_clone()
-    }
-
-    fn get_clone_untracked(&self) -> Self::Value {
-        self.node_refs.get_clone_untracked()
-    }
-}
-
-impl Disposable for KeyedChildren {
-    fn dispose(&self) {
-        self.node_refs.dispose();
-    }
-}
-
-impl Children for KeyedChildren {}
+impl_join!(T1);
+impl_join!(T1 T2);
+impl_join!(T1 T2 T3);
+impl_join!(T1 T2 T3 T4);
+impl_join!(T1 T2 T3 T4 T5);
+impl_join!(T1 T2 T3 T4 T5 T6);
+impl_join!(T1 T2 T3 T4 T5 T6 T7);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13 T14);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13 T14 T15);
+impl_join!(T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13 T14 T15 T16);

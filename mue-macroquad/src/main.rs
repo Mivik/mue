@@ -36,7 +36,7 @@ async fn the_main() {
     //     );
     // }
     let sprites =
-        KeyedChildren::new(
+        map_keyed(
             computed(move || {
                 let time = time.get();
                 let count = ((time * 2.) as usize + 1).min(10);
@@ -55,12 +55,26 @@ async fn the_main() {
             },
         );
 
-    let root = flexbox(sprites).styled(
+    let row = flexbox(sprites).styled(
         Style::new()
             .flex_direction(FlexDirection::Row)
             .width(Dimension::percent(1.))
-            .height(Dimension::percent(1.))
+            .height(Dimension::auto())
+            .flex_grow(1.)
             .justify_items(AlignItems::Stretch),
+    );
+
+    let root = flexbox((
+        row,
+        sprite()
+            .styled(Style::new().height(Dimension::auto()).flex_grow(1.))
+            .show_if(time.map(|t| t >= 2.)),
+    ))
+    .styled(
+        Style::new()
+            .flex_direction(FlexDirection::Column)
+            .width(Dimension::percent(1.))
+            .height(Dimension::percent(1.)),
     );
 
     let app = App::new(root);
