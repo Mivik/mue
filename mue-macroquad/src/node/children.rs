@@ -3,7 +3,7 @@ use std::{collections::HashMap, hash::Hash, mem, rc::Rc};
 use mue_core::{
     effect::computed,
     prelude::current_scope,
-    signal::{Access, ReadSignal},
+    signal::{signal, Access, ReadSignal},
     Disposable, Owned, Prop,
 };
 
@@ -13,6 +13,12 @@ pub type Children = ReadSignal<Rc<[NodeRef]>>;
 
 pub trait IntoChildren {
     fn into_children(self) -> Owned<Children>;
+}
+
+impl IntoChildren for () {
+    fn into_children(self) -> Owned<Children> {
+        signal(Rc::default()).owned()
+    }
 }
 
 impl IntoChildren for Owned<Children> {

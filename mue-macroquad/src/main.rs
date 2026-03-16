@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use mue_core::prelude::*;
-use mue_macroquad::{node::*, App, Style};
+use mue_macroquad::{node::*, App, SharedTexture, Style};
 use taffy::{AlignItems, Dimension, FlexDirection};
 
 fn main() {
@@ -19,22 +19,9 @@ fn main() {
 
 async fn the_main() {
     let time = signal(0.0);
+    set_pc_assets_folder("assets");
+    let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
 
-    // let mut sprites = vec![];
-    // for i in 0..4 {
-    //     sprites.push(
-    //         sprite().styled(
-    //             Style::new()
-    //                 .width(Dimension::auto())
-    //                 .height(
-    //                     time.map(move |t| {
-    //                         Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
-    //                     }),
-    //                 )
-    //                 .flex_grow(1.),
-    //         ),
-    //     );
-    // }
     let sprites =
         map_keyed(
             computed(move || {
@@ -44,7 +31,7 @@ async fn the_main() {
             }),
             |&value| value,
             move |&i| {
-                sprite().styled(
+                image(texture.clone()).styled(
                     Style::new()
                         .width(Dimension::auto())
                         .height(time.map(move |t| {
@@ -61,14 +48,14 @@ async fn the_main() {
             .width(Dimension::percent(1.))
             .height(Dimension::auto())
             .flex_grow(1.)
-            .justify_items(AlignItems::Stretch),
+            .justify_items(Some(AlignItems::Stretch)),
     );
 
     let root = flexbox((
         row,
-        sprite()
+        circle()
             .styled(Style::new().height(Dimension::auto()).flex_grow(1.))
-            .show_if(time.map(|t| t >= 2.)),
+            .show_if(time.map(|t| t >= 0.2)),
     ))
     .styled(
         Style::new()

@@ -55,12 +55,6 @@ impl<T> From<T> for Prop<T> {
     }
 }
 
-impl<T> From<T> for Prop<Option<T>> {
-    fn from(value: T) -> Self {
-        Self::Static(Some(value))
-    }
-}
-
 impl<T> From<ReadSignal<T>> for Prop<T> {
     fn from(signal: ReadSignal<T>) -> Self {
         Self::Dynamic(signal)

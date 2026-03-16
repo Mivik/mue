@@ -1,6 +1,6 @@
 use macroquad::math::Rect;
 use mue_core::prelude::*;
-use taffy::Dimension;
+use taffy::{Dimension, Display};
 
 use crate::{node::NodeInner, runtime::Runtime};
 
@@ -63,6 +63,8 @@ macro_rules! define_style {
 }
 
 define_style! {
+    display: Display;
+
     width: Dimension = Dimension::auto();
     height: Dimension = Dimension::auto();
 
@@ -90,21 +92,23 @@ impl Style {
         let style = self.compute();
         let size = size(style.width, style.height);
         computed(move || taffy::Style {
+            display: style.display.get(),
+
             size: size.get(),
 
-            align_items: style.align_items.get_clone(),
-            align_self: style.align_self.get_clone(),
-            justify_items: style.justify_items.get_clone(),
-            justify_self: style.justify_self.get_clone(),
-            align_content: style.align_content.get_clone(),
-            justify_content: style.justify_content.get_clone(),
+            align_items: style.align_items.get(),
+            align_self: style.align_self.get(),
+            justify_items: style.justify_items.get(),
+            justify_self: style.justify_self.get(),
+            align_content: style.align_content.get(),
+            justify_content: style.justify_content.get(),
 
-            flex_direction: style.flex_direction.get_clone(),
-            flex_wrap: style.flex_wrap.get_clone(),
+            flex_direction: style.flex_direction.get(),
+            flex_wrap: style.flex_wrap.get(),
 
-            flex_basis: style.flex_basis.get_clone(),
-            flex_grow: style.flex_grow.get_clone(),
-            flex_shrink: style.flex_shrink.get_clone(),
+            flex_basis: style.flex_basis.get(),
+            flex_grow: style.flex_grow.get(),
+            flex_shrink: style.flex_shrink.get(),
 
             ..Default::default()
         })
