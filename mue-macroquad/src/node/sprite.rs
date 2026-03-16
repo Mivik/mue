@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::{hook::on_render, layout::use_layout, Node};
+use crate::{hook::on_render, layout::use_layout, node::Node};
 
 pub fn sprite() -> Node {
     Node::build(move || {

@@ -48,7 +48,7 @@ impl<T> Clone for ReadSignal<T> {
 impl<T> Copy for ReadSignal<T> {}
 
 pub trait Access {
-    type Value;
+    type Value: Clone;
 
     fn get(&self) -> Self::Value
     where
@@ -64,13 +64,11 @@ pub trait Access {
         self.get_clone_untracked()
     }
 
-    fn get_clone(&self) -> Self::Value
-    where
-        Self::Value: Clone;
+    fn get_clone(&self) -> Self::Value;
 
-    fn get_clone_untracked(&self) -> Self::Value
-    where
-        Self::Value: Clone;
+    fn get_clone_untracked(&self) -> Self::Value {
+        self.get_clone()
+    }
 }
 
 impl<T> ReadSignal<T> {
@@ -115,13 +113,10 @@ impl<T> Disposable for ReadSignal<T> {
     }
 }
 
-impl<T: 'static> Access for ReadSignal<T> {
+impl<T: Clone + 'static> Access for ReadSignal<T> {
     type Value = T;
 
-    fn get_clone(&self) -> T
-    where
-        T: Clone,
-    {
+    fn get_clone(&self) -> T {
         Runtime::with(|rt| {
             rt.track(self.id);
             rt.update_if_necessary(self.id);
@@ -137,10 +132,7 @@ impl<T: 'static> Access for ReadSignal<T> {
         })
     }
 
-    fn get_clone_untracked(&self) -> T
-    where
-        T: Clone,
-    {
+    fn get_clone_untracked(&self) -> T {
         Runtime::with(|rt| {
             rt.update_if_necessary(self.id);
             self.with_inner_mut(rt, |inner| {

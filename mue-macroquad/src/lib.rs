@@ -6,4 +6,4 @@ mod runtime;
 
 pub use app::App;
 pub use layout::{Layout, Style};
-pub use node::Node;
+pub use node::NodeRef;

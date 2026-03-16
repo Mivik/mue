@@ -2,6 +2,13 @@ use std::ops::{Deref, DerefMut};
 
 pub trait Disposable {
     fn dispose(&self);
+
+    fn owned(self) -> Owned<Self>
+    where
+        Self: Sized,
+    {
+        Owned::new(self)
+    }
 }
 
 #[derive(Debug)]
@@ -11,6 +18,12 @@ pub struct Owned<T: Disposable>(T);
 impl<T: Disposable> Owned<T> {
     pub fn new(value: T) -> Self {
         Self(value)
+    }
+}
+
+impl<T: Disposable> From<T> for Owned<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
     }
 }
 

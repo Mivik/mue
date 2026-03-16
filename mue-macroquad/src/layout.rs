@@ -147,6 +147,7 @@ pub fn use_layout() -> Layout {
         node.layout = Some(layout);
         // Setup style effect
         node.apply_style(Style::new());
+        node.check_layout_children_effect();
         layout
     })
 }

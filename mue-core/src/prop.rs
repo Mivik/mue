@@ -12,23 +12,17 @@ impl<T: Default> Default for Prop<T> {
     }
 }
 
-impl<T: 'static> Access for Prop<T> {
+impl<T: Clone + 'static> Access for Prop<T> {
     type Value = T;
 
-    fn get_clone(&self) -> T
-    where
-        T: Clone,
-    {
+    fn get_clone(&self) -> T {
         match self {
             Self::Static(value) => value.clone(),
             Self::Dynamic(signal) => signal.get_clone(),
         }
     }
 
-    fn get_clone_untracked(&self) -> T
-    where
-        T: Clone,
-    {
+    fn get_clone_untracked(&self) -> T {
         match self {
             Self::Static(value) => value.clone(),
             Self::Dynamic(signal) => signal.get_clone_untracked(),

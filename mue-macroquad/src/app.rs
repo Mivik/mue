@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use mue_core::batch;
 use taffy::{AvailableSpace, Size};
 
-use crate::{runtime::Runtime, Layout, Node};
+use crate::{node::Node, runtime::Runtime, Layout};
 
 pub struct App {
     root_node: Node,
