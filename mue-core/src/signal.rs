@@ -17,15 +17,24 @@ pub(crate) struct SignalInner {
     pub effect: Option<EffectId>,
     pub subscribers: HashSet<EffectId>,
     pub comparator: Option<Comparator>,
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    pub location: &'static std::panic::Location<'static>,
 }
 
 impl SignalInner {
-    pub fn new(value: Option<Value>, comparator: Option<Comparator>) -> Self {
+    pub fn new(
+        value: Option<Value>,
+        comparator: Option<Comparator>,
+        #[cfg(debug_assertions)] location: &'static std::panic::Location<'static>,
+    ) -> Self {
         Self {
             value,
             effect: None,
             subscribers: HashSet::new(),
             comparator,
+            #[cfg(debug_assertions)]
+            location,
         }
     }
 
@@ -74,9 +83,10 @@ pub trait Access {
 impl<T> ReadSignal<T> {
     pub(crate) fn new(id: SignalId) -> Self {
         CURRENT_SCOPE.with_borrow_mut(|scope| {
-            if let Some(scope) = scope {
-                scope.signals.push(id);
-            }
+            scope.push_signal(Self {
+                id,
+                _marker: PhantomData,
+            });
         });
         Self {
             id,
@@ -99,6 +109,7 @@ impl<T> ReadSignal<T> {
         f(&mut rt.signal_mut(self.id))
     }
 
+    #[track_caller]
     pub fn map<U: PartialEq + 'static>(self, mut f: impl FnMut(T) -> U + 'static) -> ReadSignal<U>
     where
         T: Clone + 'static,
@@ -159,6 +170,7 @@ impl<T> Clone for Signal<T> {
 impl<T> Copy for Signal<T> {}
 
 impl<T: 'static> Signal<T> {
+    #[track_caller]
     pub fn new(value: T) -> Self
     where
         T: PartialEq,
@@ -166,12 +178,24 @@ impl<T: 'static> Signal<T> {
         Self::new_by(value, |a, b| a.downcast_ref::<T>() == b.downcast_ref::<T>())
     }
 
+    #[track_caller]
     pub fn new_by(value: T, comparator: Comparator) -> Self {
-        create_signal(SignalInner::new(Some(Box::new(value)), Some(comparator)))
+        create_signal(SignalInner::new(
+            Some(Box::new(value)),
+            Some(comparator),
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        ))
     }
 
+    #[track_caller]
     pub fn shallow(value: T) -> Self {
-        create_signal(SignalInner::new(Some(Box::new(value)), None))
+        create_signal(SignalInner::new(
+            Some(Box::new(value)),
+            None,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        ))
     }
 
     pub fn force_trigger(self) {
@@ -241,6 +265,7 @@ fn create_signal<T: 'static>(inner: SignalInner) -> Signal<T> {
     Signal(ReadSignal::new(id))
 }
 
+#[track_caller]
 pub fn signal<T: PartialEq + 'static>(value: T) -> Signal<T> {
     Signal::new(value)
 }

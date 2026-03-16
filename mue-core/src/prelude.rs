@@ -4,6 +4,6 @@ pub use crate::{
     effect::{computed, on_cleanup, watch, watch_effect, watch_immediate, Effect},
     prop::Prop,
     runtime::batch,
-    scope::{create_scope, Scope},
+    scope::{create_scope, current_scope, Scope},
     signal::{signal, Access, ReadSignal, Signal},
 };

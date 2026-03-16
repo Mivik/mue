@@ -14,14 +14,28 @@ new_key_type! {
 }
 
 thread_local! {
-    pub(crate) static CURRENT_SCOPE: RefCell<Option<ScopeInner>> = const { RefCell::new(None) };
+    pub(crate) static CURRENT_SCOPE: RefCell<Scope> = RefCell::new(Scope::null());
 }
 
-#[derive(Default)]
 pub(crate) struct ScopeInner {
     pub(crate) effects: Vec<EffectId>,
     pub(crate) signals: Vec<SignalId>,
     pub(crate) subscopes: Vec<ScopeId>,
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    pub location: &'static std::panic::Location<'static>,
+}
+
+impl ScopeInner {
+    pub fn new(#[cfg(debug_assertions)] location: &'static std::panic::Location<'static>) -> Self {
+        Self {
+            effects: Vec::new(),
+            signals: Vec::new(),
+            subscopes: Vec::new(),
+            #[cfg(debug_assertions)]
+            location,
+        }
+    }
 }
 
 impl Disposable for ScopeInner {
@@ -30,6 +44,7 @@ impl Disposable for ScopeInner {
             effects,
             signals,
             subscopes,
+            ..
         } = self;
         Runtime::with(|rt| {
             for effect_id in effects {
@@ -53,9 +68,29 @@ pub struct Scope {
     id: ScopeId,
 }
 
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scope {
-    pub(crate) fn new(id: ScopeId) -> Self {
-        Self { id }
+    #[track_caller]
+    pub fn new() -> Self {
+        #[cfg(debug_assertions)]
+        let location = std::panic::Location::caller();
+        Runtime::with(|rt| {
+            let id = rt.scopes.borrow_mut().insert(ScopeInner::new(
+                #[cfg(debug_assertions)]
+                location,
+            ));
+            CURRENT_SCOPE.with_borrow_mut(|parent| {
+                if !parent.is_null() {
+                    parent.push_subscope(Self { id });
+                }
+            });
+            Self { id }
+        })
     }
 
     pub fn null() -> Self {
@@ -69,15 +104,37 @@ impl Scope {
     }
 
     pub fn push_signal<T>(&self, signal: ReadSignal<T>) {
+        if self.is_null() {
+            return;
+        }
         Runtime::with(|rt| {
             rt.scopes.borrow_mut()[self.id].signals.push(signal.id);
         });
     }
 
     pub fn push_effect(&self, effect: Effect) {
+        if self.is_null() {
+            return;
+        }
         Runtime::with(|rt| {
             rt.scopes.borrow_mut()[self.id].effects.push(effect.id);
         });
+    }
+
+    pub fn push_subscope(&self, subscope: Scope) {
+        if self.is_null() {
+            return;
+        }
+        Runtime::with(|rt| {
+            rt.scopes.borrow_mut()[self.id].subscopes.push(subscope.id);
+        });
+    }
+
+    pub fn run<R>(self, f: impl FnOnce() -> R) -> R {
+        let prev_scope = CURRENT_SCOPE.replace(self);
+        let result = f();
+        CURRENT_SCOPE.replace(prev_scope);
+        result
     }
 }
 
@@ -92,17 +149,14 @@ impl Disposable for Scope {
     }
 }
 
+pub fn current_scope() -> Scope {
+    CURRENT_SCOPE.with_borrow(|s| *s)
+}
+
 pub fn create_scope(f: impl FnOnce()) -> Scope {
-    let prev_scope = CURRENT_SCOPE.replace(Some(ScopeInner::default()));
-    f();
-    let scope = CURRENT_SCOPE.replace(prev_scope).unwrap();
-    let id = Runtime::with(|rt| rt.scopes.borrow_mut().insert(scope));
-    CURRENT_SCOPE.with_borrow_mut(|parent| {
-        if let Some(parent) = parent {
-            parent.subscopes.push(id);
-        }
-    });
-    Scope::new(id)
+    let scope = Scope::new();
+    scope.run(f);
+    scope
 }
 
 #[cfg(test)]

@@ -6,7 +6,9 @@ use std::{
 use slotmap::{Key, SlotMap};
 
 use crate::{
-    effect::{Dependencies, EffectId, EffectInner, EffectState}, scope::{ScopeId, ScopeInner}, signal::{SignalId, SignalInner}
+    effect::{Dependencies, EffectId, EffectInner, EffectState},
+    scope::{ScopeId, ScopeInner},
+    signal::{SignalId, SignalInner},
 };
 
 thread_local! {
@@ -56,7 +58,12 @@ pub(crate) struct Runtime {
 impl Runtime {
     fn new() -> Self {
         let signals = RefCell::new(SlotMap::with_key());
-        let null_signal = signals.borrow_mut().insert(SignalInner::new(None, None));
+        let null_signal = signals.borrow_mut().insert(SignalInner::new(
+            None,
+            None,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        ));
 
         Self {
             signals,
@@ -92,7 +99,7 @@ impl Runtime {
     }
 
     pub fn on_update(&self, signal_id: SignalId) {
-        let subscribers = mem::take(&mut self.signal_mut(signal_id).subscribers);
+        let mut subscribers = mem::take(&mut self.signal_mut(signal_id).subscribers);
         if self.batch_depth.get() > 0 {
             for effect_id in &subscribers {
                 self.mark_stale(*effect_id, EffectState::Dirty);
@@ -102,7 +109,11 @@ impl Runtime {
                 self.update(*effect_id);
             }
         }
-        self.signal_mut(signal_id).subscribers = subscribers;
+        let mut signal = self.signal_mut(signal_id);
+        if signal.subscribers.len() < subscribers.len() {
+            mem::swap(&mut signal.subscribers, &mut subscribers);
+        }
+        signal.subscribers.extend(subscribers);
     }
 
     pub fn update(&self, effect_id: EffectId) {
@@ -266,4 +277,21 @@ impl Runtime {
 
 pub fn batch(f: impl FnOnce()) {
     Runtime::with(|rt| rt.batch(f))
+}
+
+#[cfg(debug_assertions)]
+pub fn debug() {
+    crate::runtime::Runtime::with(|rt| {
+        let signals = rt.signals.borrow();
+        eprintln!("Signals: {}", signals.len());
+        for signal in signals.values() {
+            eprintln!("  {}", signal.location);
+        }
+
+        let effects = rt.effects.borrow();
+        eprintln!("Effects: {}", effects.len());
+        for effect in effects.values() {
+            eprintln!("  {}", effect.location);
+        }
+    })
 }

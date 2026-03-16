@@ -98,9 +98,7 @@ pub struct Effect {
 impl Effect {
     pub(crate) fn new(id: EffectId) -> Self {
         CURRENT_SCOPE.with_borrow_mut(|scope| {
-            if let Some(scope) = scope {
-                scope.effects.push(id);
-            }
+            scope.push_effect(Self { id });
         });
         Self { id }
     }
@@ -231,7 +229,13 @@ fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
     #[cfg(debug_assertions)]
     let location = std::panic::Location::caller();
     Runtime::with(|rt| {
-        let signal_id = SignalInner::new(None, None).register(rt);
+        let signal_id = SignalInner::new(
+            None,
+            None,
+            #[cfg(debug_assertions)]
+            location,
+        )
+        .register(rt);
         let effect_id = EffectInner::new(
             callback,
             signal_id,
@@ -270,7 +274,10 @@ pub fn computed_with_previous<T: PartialEq + 'static>(
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     use crate::prelude::*;
 
@@ -566,8 +573,6 @@ mod test {
 
     #[test]
     fn test_cleanup_with_resources() {
-        use std::cell::Cell;
-
         struct Resource {
             cleaned_up: Rc<Cell<bool>>,
         }

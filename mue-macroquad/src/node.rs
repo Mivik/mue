@@ -2,6 +2,7 @@ mod children;
 mod flexbox;
 mod sprite;
 
+pub use children::{Children, IntoChildren, KeyedChildren, StaticChildren};
 pub use flexbox::flexbox;
 pub use sprite::sprite;
 
@@ -9,20 +10,20 @@ use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use mue_core::{
     effect::{watch_effect, Effect},
-    prelude::create_scope,
     signal::{Access, ReadSignal},
     Disposable, Owned, Scope,
 };
 use slotmap::new_key_type;
 
-use crate::{hook::Hooks, node::children::Children, runtime::Runtime, Layout, Style};
+use crate::{hook::Hooks, runtime::Runtime, Layout, Style};
 
 new_key_type! {
     pub(crate) struct NodeId;
 }
 
 thread_local! {
-    static CONTEXT: RefCell<Option<NodeInner>> = const { RefCell::new(None) };
+    #[allow(clippy::vec_box)]
+    static CONTEXT: RefCell<Vec<Box<NodeInner>>> = RefCell::default();
 }
 
 pub(crate) struct NodeInner {
@@ -41,7 +42,7 @@ pub(crate) struct NodeInner {
 impl Default for NodeInner {
     fn default() -> Self {
         Self {
-            scope: Scope::null(),
+            scope: Scope::new(),
             hooks: Hooks::default(),
 
             style: Style::default(),
@@ -57,10 +58,10 @@ impl Default for NodeInner {
 
 impl NodeInner {
     pub fn with_mut<T>(f: impl FnOnce(&mut Self) -> T) -> T {
-        CONTEXT.with_borrow_mut(|ctx| {
-            let ctx = ctx.as_mut().expect("no node context found");
-            f(ctx)
-        })
+        let mut ctx = CONTEXT.with_borrow_mut(|stack| stack.pop().expect("no node context found"));
+        let result = f(ctx.as_mut());
+        CONTEXT.with_borrow_mut(|stack| stack.push(ctx));
+        result
     }
 
     pub(crate) fn check_layout_children_effect(&mut self) {
@@ -74,18 +75,17 @@ impl NodeInner {
         let Some(children) = self.children.clone() else {
             return;
         };
-        self.layout_children_effect = watch_effect(move || {
-            Runtime::with(|rt| {
-                let mut taffy = rt.taffy.borrow_mut();
-                taffy.remove_children_range(layout.id(), ..).unwrap();
-                for child_layout in children
-                    .get_clone()
-                    .iter()
-                    .filter_map(|node| rt.node(node.id).layout)
-                {
-                    taffy.add_child(layout.id(), child_layout.id()).unwrap();
-                }
-            });
+        self.layout_children_effect = self.scope.run(|| {
+            watch_effect(move || {
+                Runtime::with(|rt| {
+                    let children = children.get_clone();
+                    let mut taffy = rt.taffy.borrow_mut();
+                    taffy.remove_children_range(layout.id(), ..).unwrap();
+                    for child_layout in children.iter().filter_map(|node| rt.node(node.id).layout) {
+                        taffy.add_child(layout.id(), child_layout.id()).unwrap();
+                    }
+                });
+            })
         })
         .owned();
     }
@@ -106,24 +106,20 @@ impl NodeInner {
             .expect("cannot apply style to a node without layout");
         self.style.merge(style);
 
-        self.style_signal = self.style.build().owned();
-        if !self.scope.is_null() {
-            self.scope.push_signal(*self.style_signal);
-        }
+        self.scope.run(|| {
+            self.style_signal = self.style.build().owned();
 
-        let style_signal = *self.style_signal;
-        self.style_effect = watch_effect(move || {
-            Runtime::with(|rt| {
-                rt.taffy
-                    .borrow_mut()
-                    .set_style(layout.id(), style_signal.get_clone())
-                    .unwrap();
-            });
-        })
-        .owned();
-        if !self.scope.is_null() {
-            self.scope.push_effect(*self.style_effect);
-        }
+            let style_signal = *self.style_signal;
+            self.style_effect = watch_effect(move || {
+                Runtime::with(|rt| {
+                    rt.taffy
+                        .borrow_mut()
+                        .set_style(layout.id(), style_signal.get_clone())
+                        .unwrap();
+                });
+            })
+            .owned();
+        });
     }
 
     pub fn register(self) -> NodeId {
@@ -131,7 +127,7 @@ impl NodeInner {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct NodeRef {
     pub(crate) id: NodeId,
 }
@@ -177,13 +173,15 @@ pub struct Node(Owned<NodeRef>);
 
 impl Node {
     pub fn build(f: impl FnOnce()) -> Self {
-        let prev_context = CONTEXT.replace(Some(NodeInner::default()));
-        let scope = create_scope(f);
-        let mut context = CONTEXT.replace(prev_context).unwrap();
-        context.scope = scope;
+        let node = NodeInner::default();
+        let scope = node.scope;
+        CONTEXT.with_borrow_mut(|stack| stack.push(Box::new(node)));
+        scope.run(f);
+        let node = CONTEXT.with_borrow_mut(|stack| stack.pop().unwrap());
+
         Self(
             NodeRef {
-                id: context.register(),
+                id: node.register(),
             }
             .owned(),
         )
