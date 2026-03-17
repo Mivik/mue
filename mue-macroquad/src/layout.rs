@@ -1,15 +1,16 @@
 use macroquad::math::Rect;
 use mue_core::prelude::*;
+use paste::paste;
 use taffy::{Dimension, Display};
 
-use crate::{node::NodeInner, runtime::Runtime};
+use crate::{node::NodeInner, runtime::Runtime, Matrix};
 
 pub fn size<S: Clone + PartialEq + 'static>(
     width: Prop<S>,
     height: Prop<S>,
 ) -> Prop<taffy::Size<S>> {
     // TODO: optimize when input are static?
-    computed(move || taffy::Size {
+    computed(move |_| taffy::Size {
         width: width.get_clone(),
         height: height.get_clone(),
     })
@@ -30,11 +31,7 @@ macro_rules! define_style {
     ) => {
         #[derive(Clone, Copy, Default)]
         pub struct Style {
-            $(pub $name: Option<Prop<$ty>>),*
-        }
-
-        struct ComputedStyle {
-            $(pub $name: Prop<$ty>),*
+            $(pub(crate) $name: Option<Prop<$ty>>),*
         }
 
         pub trait Styleable: Sized {
@@ -62,18 +59,20 @@ macro_rules! define_style {
                 self
             }
 
-            fn compute(self) -> ComputedStyle {
-                ComputedStyle {
-                    $(
-                        $name: self.$name.unwrap_or_else(|| define_style!(@extract_default ($ty, $($default)?))),
-                    )*
+            $(
+                paste! {
+                    #[allow(dead_code)]
+                    pub(crate) fn [<take_ $name>](&mut self) -> Prop<$ty> {
+                        self.$name.take().unwrap_or_else(|| define_style!(@extract_default ($ty, $($default)?)))
+                    }
                 }
-            }
+            )*
         }
     };
 }
 
 define_style! {
+    // Taffy
     display: Display;
 
     width: Dimension = Dimension::auto();
@@ -92,6 +91,10 @@ define_style! {
     flex_basis: Dimension = Dimension::auto();
     flex_grow: f32 = 0.0;
     flex_shrink: f32 = 1.0;
+
+    // Paint
+    transform: Matrix = Matrix::identity();
+    opacity: f32 = 1.0;
 }
 
 impl Style {
@@ -99,62 +102,71 @@ impl Style {
         Self::default()
     }
 
-    pub(crate) fn build(self) -> ReadSignal<taffy::Style> {
-        let style = self.compute();
-        let size = size(style.width, style.height);
-        computed(move || taffy::Style {
-            display: style.display.get(),
+    pub(crate) fn build_taffy(&mut self) -> ReadSignal<taffy::Style> {
+        let size: Prop<taffy::Size<Dimension>> = size(self.take_width(), self.take_height());
+        let display = self.take_display();
+
+        let align_items = self.take_align_items();
+        let align_self = self.take_align_self();
+        let justify_items = self.take_justify_items();
+        let justify_self = self.take_justify_self();
+        let align_content = self.take_align_content();
+        let justify_content = self.take_justify_content();
+
+        let flex_direction = self.take_flex_direction();
+        let flex_wrap = self.take_flex_wrap();
+
+        let flex_basis = self.take_flex_basis();
+        let flex_grow = self.take_flex_grow();
+        let flex_shrink = self.take_flex_shrink();
+
+        computed(move |_| taffy::Style {
+            display: display.get(),
 
             size: size.get(),
 
-            align_items: style.align_items.get(),
-            align_self: style.align_self.get(),
-            justify_items: style.justify_items.get(),
-            justify_self: style.justify_self.get(),
-            align_content: style.align_content.get(),
-            justify_content: style.justify_content.get(),
+            align_items: align_items.get(),
+            align_self: align_self.get(),
+            justify_items: justify_items.get(),
+            justify_self: justify_self.get(),
+            align_content: align_content.get(),
+            justify_content: justify_content.get(),
 
-            flex_direction: style.flex_direction.get(),
-            flex_wrap: style.flex_wrap.get(),
+            flex_direction: flex_direction.get(),
+            flex_wrap: flex_wrap.get(),
 
-            flex_basis: style.flex_basis.get(),
-            flex_grow: style.flex_grow.get(),
-            flex_shrink: style.flex_shrink.get(),
+            flex_basis: flex_basis.get(),
+            flex_grow: flex_grow.get(),
+            flex_shrink: flex_shrink.get(),
 
             ..Default::default()
         })
     }
 }
 
-#[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct Layout {
-    id: taffy::NodeId,
+    pub rect: ReadSignal<Rect>,
 }
 
-impl Layout {
-    pub(crate) fn new(id: taffy::NodeId) -> Self {
-        Self { id }
-    }
+pub(crate) struct OwnedLayout {
+    pub rect: Signal<Rect>,
+}
 
-    pub fn id(&self) -> taffy::NodeId {
-        self.id
-    }
-
-    pub fn resolve(&self) -> Rect {
-        Runtime::with(|rt| {
-            let taffy = rt.taffy.borrow();
-            let taffy::Layout { location, size, .. } = taffy.layout(self.id).unwrap();
-            Rect::new(location.x, location.y, size.width, size.height)
-        })
+impl Default for OwnedLayout {
+    fn default() -> Self {
+        Self {
+            rect: Signal::null(),
+        }
     }
 }
 
-pub fn use_layout(style: Style) -> Layout {
+pub fn use_layout(style: &mut Style) -> Layout {
+    let style = style.build_taffy();
     NodeInner::with_mut(|node| {
-        if node.layout.is_some() {
+        if node.layout_id.is_some() {
             panic!("use_layout can only be called once per node");
         }
-        let style = style.build();
 
         let layout_id =
             Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(Default::default()).unwrap());
@@ -167,27 +179,30 @@ pub fn use_layout(style: Style) -> Layout {
             });
         });
 
-        let layout = Layout::new(layout_id);
-        node.layout = Some(layout);
+        node.layout_id = Some(layout_id);
+        node.layout = OwnedLayout {
+            rect: signal(Rect::default()),
+        };
 
         let children = *node.children;
-        node
-            .scope
-            .run(|| {
-                watch_effect(move || {
-                    Runtime::with(|rt| {
-                        let children = children.get_clone();
-                        let mut taffy = rt.taffy.borrow_mut();
-                        taffy.remove_children_range(layout.id(), ..).unwrap();
-                        for child_layout in
-                            children.iter().filter_map(|node| rt.node(node.id).layout)
-                        {
-                            taffy.add_child(layout.id(), child_layout.id()).unwrap();
-                        }
-                    });
-                })
+        node.scope.run(|| {
+            watch_effect(move || {
+                Runtime::with(|rt| {
+                    let children = children.get_clone();
+                    let mut taffy = rt.taffy.borrow_mut();
+                    taffy.remove_children_range(layout_id, ..).unwrap();
+                    for child_layout_id in children
+                        .iter()
+                        .filter_map(|node| rt.node(node.id).layout_id)
+                    {
+                        taffy.add_child(layout_id, child_layout_id).unwrap();
+                    }
+                });
             });
+        });
 
-        layout
+        Layout {
+            rect: *node.layout.rect,
+        }
     })
 }

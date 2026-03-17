@@ -6,8 +6,8 @@ use crate::{
 };
 
 #[mue_macros::node]
-pub fn flexbox(style: Style) {
-    use_layout(style);
+pub fn flexbox(mut style: Style) {
+    use_layout(&mut style);
 }
 
 pub fn div() -> FlexboxBuilder {

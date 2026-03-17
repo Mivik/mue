@@ -151,11 +151,10 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let invoke_args = args.iter().map(|arg| match arg {
         Arg::Style(_) => quote! { self.style },
         Arg::Prop { ident, default, .. } => {
-            if default.is_none() {
-                quote! { self.#ident }
-            } else {
-                quote! { self.#ident.unwrap_or_else(|| #default) }
-            }
+            let default = default
+                .as_ref()
+                .map(|d| quote! { .unwrap_or_else(|| ::mue_core::Prop::Static(#d)) });
+            quote! { self.#ident #default }
         }
     });
 

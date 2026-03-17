@@ -114,13 +114,20 @@ impl<T> ReadSignal<T> {
     where
         T: Clone + 'static,
     {
-        crate::effect::computed(move || f(self.get_clone()))
+        crate::effect::computed(move |_| f(self.get_clone()))
+    }
+    #[track_caller]
+    pub fn map_always<U: 'static>(self, mut f: impl FnMut(T) -> U + 'static) -> ReadSignal<U>
+    where
+        T: Clone + 'static,
+    {
+        crate::effect::computed_always(move |_| f(self.get_clone()))
     }
 }
 
 impl<T> Disposable for ReadSignal<T> {
     fn dispose(&self) {
-        Runtime::with(|rt| rt.dispose_signal(self.id));
+        let _ = Runtime::try_with(|rt| rt.dispose_signal(self.id));
     }
 }
 
@@ -198,6 +205,10 @@ impl<T: 'static> Signal<T> {
         ))
     }
 
+    pub fn null() -> Self {
+        Self(ReadSignal::null())
+    }
+
     pub fn force_trigger(self) {
         Runtime::with(|rt| {
             rt.on_update(self.id);
@@ -257,6 +268,12 @@ impl<T> Deref for Signal<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<T> Disposable for Signal<T> {
+    fn dispose(&self) {
+        self.0.dispose();
     }
 }
 

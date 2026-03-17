@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
-use slotmap::{new_key_type, Key};
+use slotmap::{new_key_type, Key, SlotMap};
+use type_map::TypeMap;
 
 use crate::{
     effect::{Effect, EffectId},
@@ -21,6 +22,10 @@ pub(crate) struct ScopeInner {
     pub(crate) effects: Vec<EffectId>,
     pub(crate) signals: Vec<SignalId>,
     pub(crate) subscopes: Vec<ScopeId>,
+
+    parent: Scope,
+    context: TypeMap,
+
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
     pub location: &'static std::panic::Location<'static>,
@@ -32,6 +37,10 @@ impl ScopeInner {
             effects: Vec::new(),
             signals: Vec::new(),
             subscopes: Vec::new(),
+
+            parent: Scope::null(),
+            context: TypeMap::new(),
+
             #[cfg(debug_assertions)]
             location,
         }
@@ -126,7 +135,15 @@ impl Scope {
             return;
         }
         Runtime::with(|rt| {
-            rt.scopes.borrow_mut()[self.id].subscopes.push(subscope.id);
+            let mut scopes = rt.scopes.borrow_mut();
+            if scopes[subscope.id].parent.id == self.id {
+                return;
+            }
+            if !scopes[subscope.id].parent.is_null() {
+                panic!("Subscope already has a parent");
+            }
+            scopes[subscope.id].parent = *self;
+            scopes[self.id].subscopes.push(subscope.id);
         });
     }
 
@@ -136,6 +153,56 @@ impl Scope {
         CURRENT_SCOPE.replace(prev_scope);
         result
     }
+
+    pub fn provide<T: 'static>(&self, value: T) {
+        if self.is_null() {
+            return;
+        }
+        Runtime::with(|rt| {
+            rt.scopes.borrow_mut()[self.id].context.insert::<T>(value);
+        });
+    }
+
+    fn inject_with<T: 'static>(self, scopes: &SlotMap<ScopeId, ScopeInner>) -> Option<&T> {
+        let mut scope = self;
+        while !scope.is_null() {
+            if let Some(context) = scopes[scope.id].context.get::<T>() {
+                return Some(context);
+            }
+            scope = scopes[scope.id].parent;
+        }
+        None
+    }
+
+    pub fn provide_with<T: 'static>(&self, f: impl FnOnce(Option<&T>) -> T) {
+        if self.is_null() {
+            return;
+        }
+        Runtime::with(|rt| {
+            let mut scopes = rt.scopes.borrow_mut();
+            let value = f(self.inject_with::<T>(&scopes));
+            scopes[self.id].context.insert::<T>(value);
+        });
+    }
+
+    pub fn inject<T: Clone + 'static>(&self) -> Option<T> {
+        Runtime::with(|rt| {
+            let scopes = rt.scopes.borrow();
+            self.inject_with(&scopes).cloned()
+        })
+    }
+}
+
+pub fn provide<T: 'static>(value: T) {
+    current_scope().provide(value);
+}
+
+pub fn provide_with<T: 'static>(f: impl FnOnce(Option<&T>) -> T) {
+    current_scope().provide_with(f);
+}
+
+pub fn inject<T: Clone + 'static>() -> Option<T> {
+    current_scope().inject()
 }
 
 impl Disposable for Scope {

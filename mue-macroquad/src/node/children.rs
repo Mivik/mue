@@ -1,10 +1,7 @@
 use std::{collections::HashMap, hash::Hash, mem, rc::Rc};
 
 use mue_core::{
-    effect::computed,
-    prelude::current_scope,
-    signal::{signal, Access, ReadSignal},
-    Disposable, Owned, Prop,
+    Disposable, IntoProp, Owned, Prop, effect::computed, prelude::current_scope, signal::{Access, ReadSignal, signal}
 };
 
 use crate::{
@@ -20,7 +17,7 @@ pub trait IntoChildren {
 
 impl IntoChildren for () {
     fn into_children(self) -> Owned<Children> {
-        signal(Rc::default()).owned()
+        (*signal(Rc::default())).owned()
     }
 }
 
@@ -33,7 +30,7 @@ impl IntoChildren for Owned<Children> {
 impl<T: IntoNode> IntoChildren for T {
     fn into_children(self) -> Owned<Children> {
         let node = self.into_node();
-        computed(move || Rc::from([*node])).owned()
+        computed(move |_| Rc::from([*node])).owned()
     }
 }
 
@@ -41,7 +38,7 @@ macro_rules! impl_static_children {
     (@inner $ty:ty) => {
         fn into_children(self) -> Owned<Children> {
             let node_refs: Rc<[NodeRef]> = self.iter().map(|it| **it).collect();
-            computed(move || {
+            computed(move |_| {
                 // Explicitly move self into closure
                 let _ = &self;
                 node_refs.clone()
@@ -85,7 +82,7 @@ where
         let owner_scope = current_scope();
 
         let mut node_cache: HashMap<K, Node> = HashMap::new();
-        computed(move || {
+        computed(move |_| {
             let list = list.get_clone();
             let mut new_nodes = Vec::with_capacity(list.len());
             let mut prev_node_cache = mem::take(&mut node_cache);
@@ -109,10 +106,10 @@ where
     )
 }
 
-pub fn show_if(condition: impl Into<Prop<bool>>, node: Node) -> Owned<Children> {
+pub fn show_if(condition: impl IntoProp<bool>, node: Node) -> Owned<Children> {
     fn inner(condition: Prop<bool>, node: Node) -> Owned<Children> {
         let refs = Rc::<[NodeRef]>::from([*node]);
-        computed(move || {
+        computed(move |_| {
             // Explicitly moves node into this closure
             let _ = &node;
             if condition.get() {
@@ -124,13 +121,13 @@ pub fn show_if(condition: impl Into<Prop<bool>>, node: Node) -> Owned<Children> 
         .owned()
     }
 
-    inner(condition.into(), node)
+    inner(condition.into_prop(), node)
 }
 
 pub fn join_children(children: impl Into<Rc<[Owned<Children>]>>) -> Owned<Children> {
     fn inner(children: Rc<[Owned<Children>]>) -> Owned<Children> {
         let mut buffer = Vec::with_capacity(children.len());
-        computed(move || {
+        computed(move |_| {
             buffer.clear();
             buffer.extend(children.iter().map(|it| it.get_clone()));
             buffer.iter().flat_map(|it| it.iter().copied()).collect()

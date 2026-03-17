@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell, RefMut},
-    mem,
+    mem, thread::AccessError,
 };
 
 use slotmap::{Key, SlotMap};
@@ -82,6 +82,9 @@ impl Runtime {
 
     pub fn with<R>(f: impl FnOnce(&Runtime) -> R) -> R {
         RUNTIME.with(f)
+    }
+    pub fn try_with<R>(f: impl FnOnce(&Runtime) -> R) -> Result<R, AccessError> {
+        RUNTIME.try_with(f)
     }
 
     pub fn signal_mut(&self, signal_id: SignalId) -> RefMut<'_, SignalInner> {
@@ -174,6 +177,7 @@ impl Runtime {
         let mut effect = self.effect_mut(effect_id);
         if effect.state == EffectState::Check {
             let dependencies = mem::take(&mut effect.dependencies);
+            drop(effect);
             for dependency in &*dependencies {
                 self.update_if_necessary(*dependency);
                 if self.effect_mut(effect_id).state == EffectState::Dirty {

@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell};
+use std::{cell::{Ref, RefCell}, thread::AccessError};
 
 use slotmap::SlotMap;
 use taffy::TaffyTree;
@@ -27,6 +27,9 @@ impl Runtime {
 
     pub fn with<R>(f: impl FnOnce(&Runtime) -> R) -> R {
         RUNTIME.with(f)
+    }
+    pub fn try_with<R>(f: impl FnOnce(&Runtime) -> R) -> Result<R, AccessError> {
+        RUNTIME.try_with(f)
     }
 
     pub fn node(&self, id: NodeId) -> Ref<'_, NodeInner> {

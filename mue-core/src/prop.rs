@@ -65,6 +65,12 @@ pub trait IntoProp<T> {
     fn into_prop(self) -> Prop<T>;
 }
 
+impl<T> IntoProp<T> for Prop<T> {
+    fn into_prop(self) -> Prop<T> {
+        self
+    }
+}
+
 impl<T> IntoProp<T> for T {
     fn into_prop(self) -> Prop<T> {
         Prop::Static(self)

@@ -42,9 +42,11 @@ impl From<Texture2D> for SharedTexture {
 
 pub trait Shader {
     fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex;
-    fn texture(&self) -> Option<Texture2D>;
+
+    fn texture(&self) -> Option<SharedTexture>;
 }
 
+#[derive(Clone)]
 pub struct GradientShader {
     origin: (f32, f32),
     color: Color,
@@ -68,20 +70,35 @@ impl Shader for GradientShader {
         Vertex::new(t.x, t.y, 0., 0., 0., color)
     }
 
-    fn texture(&self) -> Option<Texture2D> {
+    fn texture(&self) -> Option<SharedTexture> {
         None
     }
 }
 
+#[derive(Clone)]
 pub struct TextureShader {
-    texture: (Texture2D, Rect, Rect),
-    color: Color,
+    pub texture: SharedTexture,
+    pub texture_region: Rect,
+    pub draw_rect: Rect,
+    pub color: Color,
+}
+
+impl TextureShader {
+    pub fn new(texture: SharedTexture, texture_region: Rect, draw_rect: Rect, color: Color) -> Self {
+        Self {
+            texture,
+            texture_region,
+            draw_rect,
+            color,
+        }
+    }
 }
 
 impl Shader for TextureShader {
     fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex {
         let t = mat.transform_point(p);
-        let (_, tr, dr) = self.texture;
+        let tr = self.texture_region;
+        let dr = self.draw_rect;
         let ux = (p.x - dr.x) / dr.w;
         let uy = (p.y - dr.y) / dr.h;
         // let ux = ux.clamp(0., 1.);
@@ -99,8 +116,8 @@ impl Shader for TextureShader {
         )
     }
 
-    fn texture(&self) -> Option<Texture2D> {
-        Some(self.texture.0)
+    fn texture(&self) -> Option<SharedTexture> {
+        Some(self.texture.clone())
     }
 }
 
@@ -120,7 +137,7 @@ impl Shader for RadialShader {
         Vertex::new(t.x, t.y, 0., 0., 0., color)
     }
 
-    fn texture(&self) -> Option<Texture2D> {
+    fn texture(&self) -> Option<SharedTexture> {
         None
     }
 }
@@ -181,75 +198,5 @@ impl IntoShader for (Color, (f32, f32), Color, f32) {
             color,
             color_end,
         }
-    }
-}
-
-impl IntoShader for (Texture2D, Rect) {
-    type Target = TextureShader;
-
-    #[inline]
-    fn into_shader(self) -> Self::Target {
-        let (tex, rect) = self;
-        (tex, rect, ScaleType::default(), WHITE).into_shader()
-    }
-}
-
-impl IntoShader for (Texture2D, Rect, ScaleType) {
-    type Target = TextureShader;
-
-    #[inline]
-    fn into_shader(self) -> Self::Target {
-        let (tex, rect, scale_type) = self;
-        (tex, rect, scale_type, WHITE).into_shader()
-    }
-}
-
-impl IntoShader for (Texture2D, Rect, ScaleType, Color) {
-    type Target = TextureShader;
-
-    fn into_shader(self) -> Self::Target {
-        let (tex, rect, scale_type, color) = self;
-        let source =
-            source_of_image(&tex, rect, scale_type).unwrap_or_else(|| Rect::new(0., 0., 1., 1.));
-        TextureShader {
-            texture: (tex, source, rect),
-            color,
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub enum ScaleType {
-    #[default]
-    CropCenter,
-    Inside,
-    Fit,
-}
-
-pub fn source_of_image(tex: &Texture2D, rect: Rect, scale_type: ScaleType) -> Option<Rect> {
-    match scale_type {
-        ScaleType::CropCenter => {
-            let exp = rect.w / rect.h;
-            let act = tex.width() / tex.height();
-            Some(if exp > act {
-                let h = act / exp;
-                Rect::new(0., 0.5 - h / 2., 1., h)
-            } else {
-                let w = exp / act;
-                Rect::new(0.5 - w / 2., 0., w, 1.)
-            })
-        }
-        ScaleType::Inside => {
-            let exp = rect.w / rect.h;
-            let act = tex.width() / tex.height();
-            Some(if exp > act {
-                let w = exp / act;
-                Rect::new(0.5 - w / 2., 0., w, 1.)
-            } else {
-                let h = act / exp;
-                Rect::new(0., 0.5 - h / 2., 1., h)
-            })
-        }
-        ScaleType::Fit => None,
     }
 }

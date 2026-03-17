@@ -1,22 +1,20 @@
 mod children;
 mod container;
-mod geoemetry;
+mod geom;
 pub mod image;
 
 pub use children::{join_children, map_keyed, show_if, Children, IntoChildren};
 pub use container::{div, flexbox, FlexboxBuilder};
-pub use geoemetry::circle;
+pub use geom::circle;
 pub use image::image;
 
 use std::{cell::RefCell, ops::Deref};
 
-use mue_core::{
-    signal::{Access, ReadSignal},
-    Disposable, Owned, Prop, Scope,
-};
+use macroquad::math::Rect;
+use mue_core::{scope::Scope, signal::Access, Disposable, IntoProp, Owned};
 use slotmap::new_key_type;
 
-use crate::{hook::Hooks, runtime::Runtime, Layout};
+use crate::{hook::Hooks, layout::OwnedLayout, runtime::Runtime};
 
 new_key_type! {
     pub(crate) struct NodeId;
@@ -30,7 +28,9 @@ thread_local! {
 pub(crate) struct NodeInner {
     pub scope: Scope,
     pub hooks: Hooks,
-    pub(crate) layout: Option<Layout>,
+
+    pub(crate) layout_id: Option<taffy::NodeId>,
+    pub(crate) layout: OwnedLayout,
 
     pub(crate) children: Owned<Children>,
 }
@@ -40,7 +40,8 @@ impl NodeInner {
         Self {
             scope: Scope::new(),
             hooks: Hooks::default(),
-            layout: None,
+            layout_id: None,
+            layout: OwnedLayout::default(),
 
             children,
         }
@@ -68,6 +69,15 @@ impl NodeRef {
         Runtime::with(|rt| {
             let node = rt.node(self.id);
             node.hooks.render.invoke(&());
+            if let Some(layout_id) = node.layout_id {
+                let taffy = rt.taffy.borrow();
+                let layout = taffy.layout(layout_id).unwrap();
+                let loc = layout.location;
+                let size = layout.size;
+                node.layout
+                    .rect
+                    .set(Rect::new(loc.x, loc.y, size.width, size.height));
+            }
             if !node.children.is_null() {
                 for child in node.children.get_clone().iter() {
                     child.render();
@@ -79,13 +89,13 @@ impl NodeRef {
 
 impl Disposable for NodeRef {
     fn dispose(&self) {
-        Runtime::with(|rt| {
+        let _ = Runtime::try_with(|rt| {
             let Some(node) = rt.nodes.borrow_mut().remove(self.id) else {
                 return;
             };
             node.scope.dispose();
-            if let Some(layout) = node.layout {
-                rt.taffy.borrow_mut().remove(layout.id()).unwrap();
+            if let Some(layout_id) = node.layout_id {
+                rt.taffy.borrow_mut().remove(layout_id).unwrap();
             }
             if !node.children.is_null() {
                 for child in node.children.get_clone().iter() {
@@ -102,7 +112,7 @@ pub struct Node(Owned<NodeRef>);
 
 impl Node {
     pub fn build(f: impl FnOnce()) -> Self {
-        Self::build_with_children(Owned::new(ReadSignal::null()), f)
+        Self::build_with_children(Children::null().owned(), f)
     }
 
     pub fn build_with_children(children: Owned<Children>, f: impl FnOnce()) -> Self {
@@ -131,11 +141,11 @@ impl Deref for Node {
 pub trait IntoNode {
     fn into_node(self) -> Node;
 
-    fn show_if(self, condition: impl Into<Prop<bool>>) -> Owned<Children>
+    fn show_if(self, condition: impl IntoProp<bool>) -> Owned<Children>
     where
         Self: Sized,
     {
-        children::show_if(condition, self.into_node())
+        children::show_if(condition.into_prop(), self.into_node())
     }
 }
 

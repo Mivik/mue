@@ -120,7 +120,7 @@ impl Effect {
 
 impl Disposable for Effect {
     fn dispose(&self) {
-        Runtime::with(|rt| rt.dispose_effect(self.id));
+        let _ = Runtime::try_with(|rt| rt.dispose_effect(self.id));
     }
 }
 
@@ -251,11 +251,7 @@ fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
 }
 
 #[track_caller]
-pub fn computed<T: PartialEq + 'static>(mut f: impl FnMut() -> T + 'static) -> ReadSignal<T> {
-    computed_with_previous(move |_| f())
-}
-#[track_caller]
-pub fn computed_with_previous<T: PartialEq + 'static>(
+pub fn computed<T: PartialEq + 'static>(
     mut f: impl FnMut(Option<&T>) -> T + 'static,
 ) -> ReadSignal<T> {
     create_computed(Box::new(move |value| {
@@ -272,6 +268,15 @@ pub fn computed_with_previous<T: PartialEq + 'static>(
     }))
 }
 
+#[track_caller]
+pub fn computed_always<T: 'static>(mut f: impl FnMut(Option<&T>) -> T + 'static) -> ReadSignal<T> {
+    create_computed(Box::new(move |value| {
+        let new_value = f(value.as_mut().and_then(|v| v.downcast_ref::<T>()));
+        *value = Some(Box::new(new_value));
+        true
+    }))
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -284,7 +289,7 @@ mod test {
     #[test]
     fn test_computed_basic() {
         let count = signal(2);
-        let doubled = computed(move || count.get() * 2);
+        let doubled = computed(move |_| count.get() * 2);
 
         assert_eq!(doubled.get(), 4);
 
@@ -366,8 +371,8 @@ mod test {
         let a = signal(1);
         let b = signal(2);
 
-        let sum = computed(move || a.get() + b.get());
-        let product = computed(move || sum.get() * 2);
+        let sum = computed(move |_| a.get() + b.get());
+        let product = computed(move |_| sum.get() * 2);
 
         assert_eq!(sum.get(), 3);
         assert_eq!(product.get(), 6);
@@ -439,7 +444,7 @@ mod test {
         let a = signal(1);
         let b = signal(2);
 
-        let sum = computed(move || a.get() + b.get());
+        let sum = computed(move |_| a.get() + b.get());
 
         // Initial value
         assert_eq!(sum.get(), 3);
@@ -458,7 +463,7 @@ mod test {
     #[test]
     fn test_nested_watch_immediate() {
         let a = signal(0);
-        let b = computed(move || a.get() + 1);
+        let b = computed(move |_| a.get() + 1);
 
         let effect_runs = Rc::new(RefCell::new(0));
         let effect_runs_clone = effect_runs.clone();
@@ -547,7 +552,7 @@ mod test {
     #[test]
     fn test_cleanup_with_computed() {
         let count = signal(1);
-        let doubled = computed(move || count.get() * 2);
+        let doubled = computed(move |_| count.get() * 2);
         let cleanup_runs = Rc::new(RefCell::new(0));
         let cleanup_runs_clone = cleanup_runs.clone();
 
