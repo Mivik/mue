@@ -1,12 +1,13 @@
 use std::{
     cell::{Cell, RefCell, RefMut},
-    mem, thread::AccessError,
+    mem,
+    thread::AccessError,
 };
 
 use slotmap::{Key, SlotMap};
 
 use crate::{
-    effect::{Dependencies, EffectId, EffectInner, EffectState},
+    effect::{Dependencies, DependencyList, EffectId, EffectInner, EffectState},
     scope::{ScopeId, ScopeInner},
     signal::{SignalId, SignalInner},
 };
@@ -16,17 +17,17 @@ thread_local! {
 }
 
 struct DependencyTracker {
-    dependencies: Vec<SignalId>,
+    dependencies: DependencyList,
     index: usize,
-    new_dependencies: Vec<SignalId>,
+    new_dependencies: DependencyList,
 }
 
 impl DependencyTracker {
-    pub fn new(dependencies: Vec<SignalId>) -> Self {
+    pub fn new(dependencies: DependencyList) -> Self {
         Self {
             dependencies,
             index: 0,
-            new_dependencies: Vec::new(),
+            new_dependencies: DependencyList::new(),
         }
     }
 
@@ -250,7 +251,7 @@ impl Runtime {
             if let Some(effect) = self.effects.borrow_mut().get_mut(effect_id) {
                 // Remove signal from effect's dependencies
                 if let Dependencies::Dynamic(deps) = &mut effect.dependencies {
-                    deps.retain(|&id| id != signal_id);
+                    deps.retain(|&mut id| id != signal_id);
                 }
             }
         }

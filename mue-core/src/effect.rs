@@ -1,9 +1,14 @@
 use std::{ops::Deref, slice};
 
 use slotmap::{new_key_type, Key};
+use smallvec::SmallVec;
 
 use crate::{
-    Disposable, prop::Prop, runtime::Runtime, scope::CURRENT_SCOPE, signal::{ReadSignal, SignalId, SignalInner, Value}
+    prop::Prop,
+    runtime::Runtime,
+    scope::CURRENT_SCOPE,
+    signal::{ReadSignal, SignalId, SignalInner, Value},
+    Disposable,
 };
 
 new_key_type! {
@@ -22,14 +27,16 @@ pub(crate) enum EffectState {
     Dirty,
 }
 
+pub(crate) type DependencyList = SmallVec<[SignalId; 2]>;
+
 pub(crate) enum Dependencies {
-    Dynamic(Vec<SignalId>),
+    Dynamic(DependencyList),
     Static(SignalId),
 }
 
 impl Default for Dependencies {
     fn default() -> Self {
-        Self::Dynamic(Vec::new())
+        Self::Dynamic(SmallVec::new())
     }
 }
 
