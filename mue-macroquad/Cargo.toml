@@ -11,7 +11,7 @@ glyph_brush = "0.7.12"
 lyon = "1.0.19"
 macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "df81b76", default-features = false }
 miniquad = { git = "https://github.com/Mivik/prpr-miniquad", rev = "0694542" }
-mue-core = { workspace = true }
+mue-core = { workspace = true, features = ["impl-taffy"] }
 mue-macros = { path = "../mue-macros" }
 nalgebra = "0.33.2"
 paste = "1.0.15"

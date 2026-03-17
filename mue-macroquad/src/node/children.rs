@@ -1,7 +1,11 @@
 use std::{collections::HashMap, hash::Hash, mem, rc::Rc};
 
 use mue_core::{
-    Disposable, IntoProp, Owned, Prop, effect::computed, prelude::current_scope, signal::{Access, ReadSignal, signal}
+    effect::computed,
+    prelude::current_scope,
+    prop::Prop,
+    signal::{signal, Access, ReadSignal},
+    Disposable, Owned,
 };
 
 use crate::{
@@ -106,7 +110,7 @@ where
     )
 }
 
-pub fn show_if(condition: impl IntoProp<bool>, node: Node) -> Owned<Children> {
+pub fn show_if(condition: impl Into<Prop<bool>>, node: Node) -> Owned<Children> {
     fn inner(condition: Prop<bool>, node: Node) -> Owned<Children> {
         let refs = Rc::<[NodeRef]>::from([*node]);
         computed(move |_| {
@@ -121,7 +125,7 @@ pub fn show_if(condition: impl IntoProp<bool>, node: Node) -> Owned<Children> {
         .owned()
     }
 
-    inner(condition.into_prop(), node)
+    inner(condition.into(), node)
 }
 
 pub fn join_children(children: impl Into<Rc<[Owned<Children>]>>) -> Owned<Children> {

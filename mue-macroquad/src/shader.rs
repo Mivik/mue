@@ -1,6 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use macroquad::prelude::*;
+use mue_core::prop::PropValue;
 
 use crate::{Matrix, Point};
 
@@ -40,11 +41,15 @@ impl From<Texture2D> for SharedTexture {
     }
 }
 
+impl PropValue for SharedTexture {}
+
 pub trait Shader {
     fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex;
 
     fn texture(&self) -> Option<SharedTexture>;
 }
+
+impl PropValue for TextureShader {}
 
 #[derive(Clone)]
 pub struct GradientShader {

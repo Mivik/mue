@@ -1,3 +1,11 @@
+use std::{
+    borrow::Cow,
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::Arc,
+};
+
 use crate::signal::{Access, ReadSignal};
 
 #[derive(Clone, Copy)]
@@ -49,11 +57,7 @@ impl<T: 'static> Prop<T> {
     }
 }
 
-impl<T> From<T> for Prop<T> {
-    fn from(value: T) -> Self {
-        Self::Static(value)
-    }
-}
+pub trait PropValue {}
 
 impl<T> From<ReadSignal<T>> for Prop<T> {
     fn from(signal: ReadSignal<T>) -> Self {
@@ -61,33 +65,101 @@ impl<T> From<ReadSignal<T>> for Prop<T> {
     }
 }
 
-pub trait IntoProp<T> {
-    fn into_prop(self) -> Prop<T>;
+impl<T: PropValue> From<T> for Prop<T> {
+    fn from(value: T) -> Self {
+        Self::Static(value)
+    }
 }
-
-impl<T> IntoProp<T> for Prop<T> {
-    fn into_prop(self) -> Prop<T> {
-        self
+impl<T: PropValue> From<T> for Prop<Option<T>> {
+    fn from(value: T) -> Self {
+        Self::Static(Some(value))
     }
 }
 
-impl<T> IntoProp<T> for T {
-    fn into_prop(self) -> Prop<T> {
-        Prop::Static(self)
-    }
+macro_rules! impl_into {
+    ($to:ty; $($ty:ty),*) => {
+        $(
+            impl From<$ty> for Prop<$to> {
+                fn from(value: $ty) -> Self {
+                    Prop::Static(value.into())
+                }
+            }
+        )*
+    };
+}
+impl_into!(String; &'_ str, Cow<'_, str>);
+impl_into!(PathBuf; &'_ str, &'_ Path, Cow<'_, Path>);
+impl_into!(OsString; &'_ str, &'_ OsStr, Cow<'_, OsStr>);
+
+macro_rules! impl_prop_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl PropValue for $ty {}
+        )*
+    };
+}
+impl_prop_value!(char, bool);
+impl_prop_value!(f32, f64);
+impl_prop_value!(u8, u16, u32, u64, u128, usize);
+impl_prop_value!(i8, i16, i32, i64, i128, isize);
+impl_prop_value!(String, Cow<'static, str>, &'static str);
+impl_prop_value!(PathBuf, Cow<'static, Path>, &'static Path);
+
+impl<T: PropValue> PropValue for Option<T> {}
+impl<T: PropValue> PropValue for Box<T> {}
+impl<T: PropValue> PropValue for Vec<T> {}
+impl<T: PropValue> PropValue for Rc<T> {}
+impl<T: PropValue> PropValue for Arc<T> {}
+impl<T: PropValue> PropValue for [T] {}
+impl<T: PropValue, const N: usize> PropValue for [T; N] {}
+
+macro_rules! impl_prop_value_tuple {
+    ($($p:ident)*) => {
+        impl<$($p: PropValue),*> PropValue for ($($p,)*) {}
+    };
 }
 
-impl<T> IntoProp<T> for ReadSignal<T> {
-    fn into_prop(self) -> Prop<T> {
-        Prop::Dynamic(self)
-    }
+impl_prop_value_tuple!();
+impl_prop_value_tuple!(T1);
+impl_prop_value_tuple!(T1 T2);
+impl_prop_value_tuple!(T1 T2 T3);
+impl_prop_value_tuple!(T1 T2 T3 T4);
+impl_prop_value_tuple!(T1 T2 T3 T4 T5);
+impl_prop_value_tuple!(T1 T2 T3 T4 T5 T6);
+impl_prop_value_tuple!(T1 T2 T3 T4 T5 T6 T7);
+impl_prop_value_tuple!(T1 T2 T3 T4 T5 T6 T7 T8);
+
+#[cfg(feature = "impl-taffy")]
+impl_prop_value!(
+    taffy::style::Dimension,
+    taffy::style::LengthPercentage,
+    taffy::style::LengthPercentageAuto,
+    taffy::style::AlignContent,
+    taffy::style::AlignItems,
+    taffy::style::AvailableSpace,
+    taffy::style::BoxGenerationMode,
+    taffy::style::BoxSizing,
+    taffy::style::Display,
+    taffy::style::FlexDirection,
+    taffy::style::FlexWrap,
+    taffy::style::GridAutoFlow,
+    taffy::style::GridPlacement,
+    taffy::style::Overflow,
+    taffy::style::Position,
+    taffy::style::RepetitionCount,
+    taffy::style::TextAlign,
+);
+
+#[cfg(feature = "impl-taffy")]
+impl<S, Repetition> PropValue for taffy::GenericGridTemplateComponent<S, Repetition>
+where
+    S: taffy::CheapCloneStr,
+    Repetition: taffy::GenericRepetition<CustomIdent = S>,
+{
 }
 
-impl<T> IntoProp<Option<T>> for T {
-    fn into_prop(self) -> Prop<Option<T>> {
-        Prop::Static(Some(self))
-    }
-}
+#[cfg(feature = "impl-taffy")]
+impl<S> PropValue for taffy::GridTemplateComponent<S> where S: taffy::CheapCloneStr {}
 
 #[macro_export]
 macro_rules! default_props {

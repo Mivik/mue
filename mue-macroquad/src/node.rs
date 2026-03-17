@@ -11,7 +11,7 @@ pub use image::image;
 use std::{cell::RefCell, ops::Deref};
 
 use macroquad::math::Rect;
-use mue_core::{scope::Scope, signal::Access, Disposable, IntoProp, Owned};
+use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
 use slotmap::new_key_type;
 
 use crate::{hook::Hooks, layout::OwnedLayout, runtime::Runtime};
@@ -141,11 +141,11 @@ impl Deref for Node {
 pub trait IntoNode {
     fn into_node(self) -> Node;
 
-    fn show_if(self, condition: impl IntoProp<bool>) -> Owned<Children>
+    fn show_if(self, condition: impl Into<Prop<bool>>) -> Owned<Children>
     where
         Self: Sized,
     {
-        children::show_if(condition.into_prop(), self.into_node())
+        children::show_if(condition.into(), self.into_node())
     }
 }
 

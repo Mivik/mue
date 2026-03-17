@@ -1,10 +1,14 @@
 use std::rc::Rc;
 
 use macroquad::color::WHITE;
-use mue_core::{signal::Access, Prop};
+use mue_core::{prop::Prop, signal::Access};
 
 use crate::{
-    Layout, Point, hook::on_render, layout::{Style, use_layout}, paint::{Shape, use_paint}, shader::IntoShader
+    hook::on_render,
+    layout::{use_layout, Style},
+    paint::{use_paint, Shape},
+    shader::IntoShader,
+    Layout, Point,
 };
 
 #[mue_macros::node]

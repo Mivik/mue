@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use mue_core::{effect::computed_always, prelude::Access, Prop};
+use mue_core::{effect::computed_always, prelude::Access, prop::PropValue};
 
 use crate::{
     hook::on_render,
@@ -18,6 +18,8 @@ pub enum ObjectFit {
     ScaleDown,
     None,
 }
+
+impl PropValue for ObjectFit {}
 
 #[mue_macros::node]
 pub fn image(
@@ -54,8 +56,7 @@ pub fn image(
 
         TextureShader::new(texture, adjusted_uv, draw_rect, color.get())
     });
-    let shape =
-        paint.build_fill_rect::<TextureShader>(shader.map(|shader| shader.draw_rect), shader);
+    let shape = paint.build_fill_rect(shader.map(|shader| shader.draw_rect), shader);
 
     on_render(move |_| {
         shape.get_clone().draw();

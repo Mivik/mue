@@ -3,10 +3,7 @@ use std::{ops::Deref, slice};
 use slotmap::{new_key_type, Key};
 
 use crate::{
-    runtime::Runtime,
-    scope::CURRENT_SCOPE,
-    signal::{ReadSignal, SignalId, SignalInner, Value},
-    Disposable, Prop,
+    Disposable, prop::Prop, runtime::Runtime, scope::CURRENT_SCOPE, signal::{ReadSignal, SignalId, SignalInner, Value}
 };
 
 new_key_type! {

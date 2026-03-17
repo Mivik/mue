@@ -10,11 +10,10 @@ pub fn size<S: Clone + PartialEq + 'static>(
     height: Prop<S>,
 ) -> Prop<taffy::Size<S>> {
     // TODO: optimize when input are static?
-    computed(move |_| taffy::Size {
+    Prop::Dynamic(computed(move |_| taffy::Size {
         width: width.get_clone(),
         height: height.get_clone(),
-    })
-    .into()
+    }))
 }
 
 macro_rules! define_style {
@@ -38,8 +37,8 @@ macro_rules! define_style {
             fn style_mut(&mut self) -> &mut Style;
 
             $(
-                fn $name(mut self, value: impl IntoProp<$ty>) -> Self {
-                    self.style_mut().$name = Some(value.into_prop());
+                fn $name(mut self, value: impl Into<Prop<$ty>>) -> Self {
+                    self.style_mut().$name = Some(value.into());
                     self
                 }
             )*

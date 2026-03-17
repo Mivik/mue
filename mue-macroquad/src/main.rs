@@ -23,11 +23,11 @@ async fn the_main() {
     let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
 
     let sprites = map_keyed(
-        computed(move |_| {
+        Prop::Dynamic(computed(move |_| {
             let time = time.get();
             let count = ((time * 2.) as usize + 1).min(10);
             (0..count).collect()
-        }),
+        })),
         |&value| value,
         move |&i| {
             image(texture.clone())

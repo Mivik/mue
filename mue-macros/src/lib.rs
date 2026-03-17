@@ -4,7 +4,7 @@ use heck::ToUpperCamelCase;
 use proc_macro::TokenStream;
 use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, FnArg, ItemFn, Meta, Pat, Type};
+use syn::{parse_macro_input, FnArg, ItemFn, Meta, Pat, Type};
 
 #[proc_macro_attribute]
 pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
@@ -13,6 +13,8 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         FoundCrate::Name(name) => quote! { ::#name },
     };
     let option = quote! { ::std::option::Option };
+    let prop = quote! { ::mue_core::prop::Prop };
+    let into = quote! { ::std::convert::Into };
 
     let mut input = parse_macro_input!(input as ItemFn);
     let vis = &input.vis;
@@ -42,7 +44,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
                     return Arg::Style((*pat_type.ty).clone());
                 }
                 let inner_ty = (*pat_type.ty).clone();
-                let ty: Type = syn::parse_quote! { ::mue_core::Prop<#inner_ty> };
+                let ty: Type = syn::parse_quote! { #prop<#inner_ty> };
                 *pat_type.ty = ty.clone();
 
                 let mut default = None;
@@ -78,9 +80,9 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
             }
             Arg::Prop { ident, ty, default } => {
                 if default.is_some() {
-                    quote! { #ident: #option<::mue_core::Prop<#ty>> }
+                    quote! { #ident: #option<#prop<#ty>> }
                 } else {
-                    quote! { #ident: ::mue_core::Prop<#ty> }
+                    quote! { #ident: #prop<#ty> }
                 }
             }
         })
@@ -91,12 +93,12 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         .iter()
         .filter_map(|arg| match arg {
             Arg::Prop { ident, ty, default } => {
-                let mut value = quote! { ::mue_core::IntoProp::into_prop(value) };
+                let mut value = quote! { #into::into(value) };
                 if default.is_some() {
                     value = quote! { Some(#value) };
                 }
                 Some(quote! {
-                    pub fn #ident(mut self, value: impl ::mue_core::IntoProp<#ty>) -> Self {
+                    pub fn #ident(mut self, value: impl #into<#prop<#ty>>) -> Self {
                         self.#ident = #value;
                         self
                     }
@@ -116,7 +118,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         .filter_map(|arg| match arg {
             Arg::Prop { ident, ty, default } => {
                 if default.is_none() {
-                    Some(quote! { #ident: impl ::mue_core::IntoProp<#ty> })
+                    Some(quote! { #ident: impl #into<#prop<#ty>> })
                 } else {
                     None
                 }
@@ -140,7 +142,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
             Arg::Style(_) => quote! { style: #macroquad::Style::default() },
             Arg::Prop { ident, default, .. } => {
                 if default.is_none() {
-                    quote! { #ident: ::mue_core::IntoProp::into_prop(#ident) }
+                    quote! { #ident: #into::into(#ident) }
                 } else {
                     quote! { #ident: None }
                 }
@@ -153,7 +155,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         Arg::Prop { ident, default, .. } => {
             let default = default
                 .as_ref()
-                .map(|d| quote! { .unwrap_or_else(|| ::mue_core::Prop::Static(#d)) });
+                .map(|d| quote! { .unwrap_or_else(|| #prop::Static(#d)) });
             quote! { self.#ident #default }
         }
     });
@@ -209,68 +211,6 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
         #vis fn #ident(#( #new_args ),*) -> #builder_name {
             #builder_name::new(#( #new_arg_names ),*)
-        }
-    }
-    .into()
-}
-
-#[proc_macro_derive(Properties, attributes(init))]
-pub fn derive_properties(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-
-    let fields = match &input.data {
-        Data::Struct(s) => match &s.fields {
-            Fields::Named(f) => &f.named,
-            _ => panic!("Properties can only be derived for structs with named fields"),
-        },
-        _ => panic!("Properties can only be derived for structs"),
-    };
-
-    // For Default impl, we need to reconstruct the original struct fields
-    // because the user's struct already has the original types
-    let field_defaults: Vec<_> = fields
-        .iter()
-        .map(|f| {
-            let field_name = &f.ident;
-            let field_type = &f.ty;
-            quote! {
-                #field_name: <#field_type>::default()
-            }
-        })
-        .collect();
-
-    // Generate setter methods - fields stay as original type, setters accept Into<T>
-    let setters: Vec<_> = fields
-        .iter()
-        .map(|f| {
-            let field_name = &f.ident;
-            let field_type = &f.ty;
-            quote! {
-                fn #field_name(mut self, value: impl Into<#field_type>) -> Self {
-                    self.#field_name = value.into();
-                    self
-                }
-            }
-        })
-        .collect();
-
-    quote! {
-        impl #impl_generics Default for #name #ty_generics #where_clause {
-            fn default() -> Self {
-                Self {
-                    #( #field_defaults ),*
-                }
-            }
-        }
-
-        impl #impl_generics #name #ty_generics #where_clause {
-            pub fn new() -> Self {
-                Self::default()
-            }
-
-            #( #setters )*
         }
     }
     .into()

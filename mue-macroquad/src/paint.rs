@@ -10,9 +10,9 @@ use lyon::{
 use macroquad::prelude::*;
 use mue_core::{
     effect::{computed, computed_always},
-    scope::{inject, provide_with},
+    prop::Prop,
+    scope::inject,
     signal::{Access, ReadSignal},
-    IntoProp, Prop,
 };
 
 use crate::{
@@ -21,42 +21,22 @@ use crate::{
 };
 
 thread_local! {
-    static PAINT: RefCell<Paint> = RefCell::new(Paint::new());
+    static PAINT: RefCell<PaintInner> = RefCell::new(PaintInner::new());
 }
 
 #[derive(Clone)]
 #[repr(transparent)]
 struct Transform(Prop<Matrix>);
 
-pub fn with_transform(transform: impl IntoProp<Matrix>) {
-    let transform = transform.into_prop();
-    provide_with::<Transform>(|prev| {
-        Transform(match prev.cloned() {
-            Some(Transform(prev)) => computed(move |_| prev.get() * transform.get()).into(),
-            None => transform,
-        })
-    });
-}
-
 #[derive(Clone)]
 struct Opacity(Prop<f32>);
 
-pub fn with_opacity(opacity: impl IntoProp<f32>) {
-    let opacity = opacity.into_prop();
-    provide_with::<Opacity>(|prev| {
-        Opacity(match prev.cloned() {
-            Some(Opacity(prev)) => computed(move |_| prev.get() * opacity.get()).into(),
-            None => opacity,
-        })
-    });
-}
-
-pub struct UsePaint {
+pub struct Paint {
     transform: Prop<Matrix>,
     opacity: Prop<f32>,
 }
-impl UsePaint {
-    pub fn with<R>(&self, f: impl FnOnce(&mut Paint) -> R) -> R {
+impl Paint {
+    pub fn with<R>(&self, f: impl FnOnce(&mut PaintInner) -> R) -> R {
         PAINT.with_borrow_mut(|paint| {
             paint.transform = self.transform.get();
             paint.alpha = self.opacity.get();
@@ -67,14 +47,17 @@ impl UsePaint {
     fn build_shape<S>(
         &self,
         shader: Prop<S>,
-        mut f: impl FnMut(&mut Paint, f32, &mut BuffersBuilder<Vertex, u16, ShaderConstructor<S::Target>>)
-            + 'static,
+        mut f: impl FnMut(
+                &mut PaintInner,
+                f32,
+                &mut BuffersBuilder<Vertex, u16, ShaderConstructor<S::Target>>,
+            ) + 'static,
     ) -> ReadSignal<Rc<Shape>>
     where
         S: Clone + IntoShader + 'static,
     {
-        let transform = self.transform.clone();
-        let alpha = self.opacity.clone();
+        let transform = self.transform;
+        let alpha = self.opacity;
         computed_always(move |_| {
             let mut shape = Shape::default();
             shape.build_from(
@@ -89,15 +72,15 @@ impl UsePaint {
 
     pub fn build_fill_path<I, S>(
         &self,
-        path: impl IntoProp<I>,
-        shader: impl IntoProp<S>,
+        path: impl Into<Prop<I>>,
+        shader: impl Into<Prop<S>>,
     ) -> ReadSignal<Rc<Shape>>
     where
         I: Clone + IntoIterator<Item = PathEvent> + 'static,
         S: Clone + Shader + 'static,
     {
-        let path = path.into_prop();
-        self.build_shape(shader.into_prop(), move |p, tol, shaded| {
+        let path = path.into();
+        self.build_shape(shader.into(), move |p, tol, shaded| {
             p.fill_tess
                 .tessellate(path.get_clone(), &FillOptions::tolerance(tol), shaded)
                 .unwrap();
@@ -106,14 +89,14 @@ impl UsePaint {
 
     pub fn build_fill_rect<S>(
         &self,
-        rect: impl IntoProp<Rect>,
-        shader: impl IntoProp<S>,
+        rect: impl Into<Prop<Rect>>,
+        shader: impl Into<Prop<S>>,
     ) -> ReadSignal<Rc<Shape>>
     where
         S: Clone + Shader + 'static,
     {
-        let rect = rect.into_prop();
-        self.build_shape(shader.into_prop(), move |p, tol, shaded| {
+        let rect = rect.into();
+        self.build_shape(shader.into(), move |p, tol, shaded| {
             p.fill_tess
                 .tessellate_rectangle(
                     &lyon::geom::Box2D::from_origin_and_size(
@@ -129,16 +112,16 @@ impl UsePaint {
 
     pub fn build_fill_circle<S>(
         &self,
-        center: impl IntoProp<Point>,
-        radius: impl IntoProp<f32>,
-        shader: Prop<S>,
+        center: impl Into<Prop<Point>>,
+        radius: impl Into<Prop<f32>>,
+        shader: impl Into<Prop<S>>,
     ) -> ReadSignal<Rc<Shape>>
     where
         S: Clone + Shader + 'static,
     {
-        let center = center.into_prop();
-        let radius = radius.into_prop();
-        self.build_shape(shader, move |p, tol, shaded| {
+        let center = center.into();
+        let radius = radius.into();
+        self.build_shape(shader.into(), move |p, tol, shaded| {
             let center = center.get();
             p.fill_tess
                 .tessellate_circle(
@@ -152,7 +135,7 @@ impl UsePaint {
     }
 }
 
-pub fn use_paint(style: &mut Style) -> UsePaint {
+pub fn use_paint(style: &mut Style) -> Paint {
     fn extract<T: Clone + PartialEq + 'static>(
         prev: Option<Prop<T>>,
         style: Option<Prop<T>>,
@@ -160,16 +143,16 @@ pub fn use_paint(style: &mut Style) -> UsePaint {
         mut reduce: impl FnMut(T, T) -> T + 'static,
     ) -> Prop<T> {
         match (prev, style) {
-            (Some(prev), Some(style)) => {
-                computed(move |_| reduce(prev.get_clone(), style.get_clone())).into()
-            }
+            (Some(prev), Some(style)) => Prop::Dynamic(computed(move |_| {
+                reduce(prev.get_clone(), style.get_clone())
+            })),
             (Some(prev), None) => prev,
             (None, Some(style)) => style,
-            (None, None) => default().into(),
+            (None, None) => Prop::Static(default()),
         }
     }
 
-    UsePaint {
+    Paint {
         transform: extract(
             inject::<Transform>().map(|it| it.0),
             style.transform,
@@ -244,7 +227,7 @@ impl<T: Shader> StrokeVertexConstructor<Vertex> for ShaderConstructor<T> {
     }
 }
 
-pub struct Paint {
+pub struct PaintInner {
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,
     shape: Shape,
@@ -253,13 +236,13 @@ pub struct Paint {
     alpha: f32,
 }
 
-impl Default for Paint {
+impl Default for PaintInner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Paint {
+impl PaintInner {
     pub fn new() -> Self {
         Self {
             fill_tess: FillTessellator::new(),
