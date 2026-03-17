@@ -7,7 +7,10 @@ use mue_core::{
     Disposable, Owned, Prop,
 };
 
-use crate::{node::Node, NodeRef};
+use crate::{
+    node::{IntoNode, Node},
+    NodeRef,
+};
 
 pub type Children = ReadSignal<Rc<[NodeRef]>>;
 
@@ -27,9 +30,10 @@ impl IntoChildren for Owned<Children> {
     }
 }
 
-impl IntoChildren for Node {
+impl<T: IntoNode> IntoChildren for T {
     fn into_children(self) -> Owned<Children> {
-        computed(move || Rc::from([*self])).owned()
+        let node = self.into_node();
+        computed(move || Rc::from([*node])).owned()
     }
 }
 
@@ -59,14 +63,15 @@ impl<const N: usize> IntoChildren for [Node; N] {
     impl_static_children!(@inner [Node; N]);
 }
 
-pub fn map_keyed<T, K>(
+pub fn map_keyed<T, K, N>(
     list: impl Into<Prop<Rc<[T]>>>,
     key_fn: impl Fn(&T) -> K + 'static,
-    node_fn: impl Fn(&T) -> Node + 'static,
+    node_fn: impl Fn(&T) -> N + 'static,
 ) -> Owned<Children>
 where
     T: 'static,
     K: Hash + Eq + 'static,
+    N: IntoNode + 'static,
 {
     fn inner<T, K>(
         list: Prop<Rc<[T]>>,
@@ -97,7 +102,11 @@ where
         .owned()
     }
 
-    inner(list.into(), Box::new(key_fn), Box::new(node_fn))
+    inner::<T, K>(
+        list.into(),
+        Box::new(key_fn),
+        Box::new(move |t| node_fn(t).into_node()),
+    )
 }
 
 pub fn show_if(condition: impl Into<Prop<bool>>, node: Node) -> Owned<Children> {

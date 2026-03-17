@@ -12,6 +12,7 @@ lyon = "1.0.19"
 macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "df81b76", default-features = false }
 miniquad = { git = "https://github.com/Mivik/prpr-miniquad", rev = "0694542" }
 mue-core = { workspace = true }
+mue-macros = { path = "../mue-macros" }
 nalgebra = "0.33.2"
 slotmap = "1.1.1"
 smallvec = "1.15.1"

@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{Ref, RefCell};
 
 use slotmap::SlotMap;
 use taffy::TaffyTree;
@@ -31,9 +31,5 @@ impl Runtime {
 
     pub fn node(&self, id: NodeId) -> Ref<'_, NodeInner> {
         Ref::map(self.nodes.borrow(), |arena| &arena[id])
-    }
-
-    pub fn node_mut(&self, id: NodeId) -> RefMut<'_, NodeInner> {
-        RefMut::map(self.nodes.borrow_mut(), |arena| &mut arena[id])
     }
 }

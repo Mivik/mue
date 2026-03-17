@@ -61,6 +61,28 @@ impl<T> From<ReadSignal<T>> for Prop<T> {
     }
 }
 
+pub trait IntoProp<T> {
+    fn into_prop(self) -> Prop<T>;
+}
+
+impl<T> IntoProp<T> for T {
+    fn into_prop(self) -> Prop<T> {
+        Prop::Static(self)
+    }
+}
+
+impl<T> IntoProp<T> for ReadSignal<T> {
+    fn into_prop(self) -> Prop<T> {
+        Prop::Dynamic(self)
+    }
+}
+
+impl<T> IntoProp<Option<T>> for T {
+    fn into_prop(self) -> Prop<Option<T>> {
+        Prop::Static(Some(self))
+    }
+}
+
 #[macro_export]
 macro_rules! default_props {
     (@extract_default ($ty:ty, $default:expr)) => {

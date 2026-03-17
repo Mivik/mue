@@ -1,48 +1,64 @@
 use macroquad::prelude::*;
-use mue_core::{signal::Access, Prop};
+use mue_core::prelude::Access;
 
 use crate::{
     hook::on_render,
-    layout::use_layout,
-    node::{div, Node},
-    prop::{prop, prop_or},
+    layout::{use_layout, Style},
     SharedTexture,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ObjectFit {
+    #[default]
+    Fill,
     Cover,
     Contain,
-    Fill,
     ScaleDown,
     None,
 }
 
-#[derive(Clone)]
-pub struct ImageRegion(Rect);
+#[mue_macros::node]
+pub fn image(
+    style: Style,
+    texture: SharedTexture,
+    #[default] object_fit: ObjectFit,
+    #[default] region: Option<Rect>,
+) {
+    let layout = use_layout(style);
+    on_render(move |_| {
+        let r = layout.resolve();
+        draw_texture_ex(
+            *texture.get_clone(),
+            r.x,
+            r.y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(r.w, r.h)),
+                source: region.get_clone(),
+                ..Default::default()
+            },
+        );
+    });
+}
 
-pub fn image(texture: impl Into<Prop<SharedTexture>>) -> Node {
-    let texture = texture.into();
-    let fit = prop_or(ObjectFit::Fill);
-    let region = prop::<ImageRegion>();
-    Node::build(move || {
-        let layout = use_layout();
-        on_render(move |_| {
-            let r = layout.resolve();
-            draw_texture_ex(
-                *texture.get_clone(),
-                r.x,
-                r.y,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(r.w, r.h)),
-                    source: region.as_ref().map(|it| it.get_clone().0),
-                    rotation: 0.,
-                    flip_x: false,
-                    flip_y: false,
-                    pivot: None,
-                },
-            );
-        });
-    })
+impl ImageBuilder {
+    pub fn object_fill(self) -> Self {
+        self.object_fit(ObjectFit::Fill)
+    }
+
+    pub fn object_cover(self) -> Self {
+        self.object_fit(ObjectFit::Cover)
+    }
+
+    pub fn object_contain(self) -> Self {
+        self.object_fit(ObjectFit::Contain)
+    }
+
+    pub fn object_scale_down(self) -> Self {
+        self.object_fit(ObjectFit::ScaleDown)
+    }
+
+    pub fn object_none(self) -> Self {
+        self.object_fit(ObjectFit::None)
+    }
 }

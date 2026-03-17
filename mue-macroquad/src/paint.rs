@@ -11,7 +11,7 @@ use macroquad::prelude::*;
 
 use crate::{
     shader::{IntoShader, Shader},
-    Matrix, Point, Vector,
+    Matrix, Point,
 };
 
 thread_local! {

@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use mue_core::prelude::*;
-use mue_macroquad::{node::*, App, SharedTexture, Style};
+use mue_macroquad::{node::*, App, SharedTexture, Styleable};
 use taffy::{AlignItems, Dimension, FlexDirection};
 
 fn main() {
@@ -22,47 +22,42 @@ async fn the_main() {
     set_pc_assets_folder("assets");
     let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
 
-    let sprites =
-        map_keyed(
-            computed(move || {
-                let time = time.get();
-                let count = ((time * 2.) as usize + 1).min(10);
-                (0..count).collect()
-            }),
-            |&value| value,
-            move |&i| {
-                image(texture.clone()).styled(
-                    Style::new()
-                        .width(Dimension::auto())
-                        .height(time.map(move |t| {
-                            Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
-                        }))
-                        .flex_grow(1.),
+    let sprites = map_keyed(
+        computed(move || {
+            let time = time.get();
+            let count = ((time * 2.) as usize + 1).min(10);
+            (0..count).collect()
+        }),
+        |&value| value,
+        move |&i| {
+            image(texture.clone())
+                .width(Dimension::auto())
+                .height(
+                    time.map(move |t| Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)),
                 )
-            },
-        );
-
-    let row = flexbox(sprites).styled(
-        Style::new()
-            .flex_direction(FlexDirection::Row)
-            .width(Dimension::percent(1.))
-            .height(Dimension::auto())
-            .flex_grow(1.)
-            .justify_items(Some(AlignItems::Stretch)),
+                .flex_grow(1.)
+        },
     );
 
-    let root = flexbox((
-        row,
-        circle()
-            .styled(Style::new().height(Dimension::auto()).flex_grow(1.))
-            .show_if(time.map(|t| t >= 0.2)),
-    ))
-    .styled(
-        Style::new()
-            .flex_direction(FlexDirection::Column)
-            .width(Dimension::percent(1.))
-            .height(Dimension::percent(1.)),
-    );
+    let row = flexbox()
+        .children(sprites)
+        .flex_direction(FlexDirection::Row)
+        .width(Dimension::percent(1.))
+        .height(Dimension::auto())
+        .flex_grow(1.)
+        .justify_items(AlignItems::Stretch);
+
+    let root = flexbox()
+        .children((
+            row,
+            circle()
+                .height(Dimension::auto())
+                .flex_grow(1.)
+                .show_if(time.map(|t| t >= 0.2)),
+        ))
+        .flex_direction(FlexDirection::Column)
+        .width(Dimension::percent(1.))
+        .height(Dimension::percent(1.));
 
     let app = App::new(root);
 

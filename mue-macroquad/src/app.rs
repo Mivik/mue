@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use mue_core::batch;
 use taffy::{AvailableSpace, Size};
 
-use crate::{node::Node, runtime::Runtime, Layout};
+use crate::{IntoNode, Layout, node::Node, runtime::Runtime};
 
 pub struct App {
     root_node: Node,
@@ -11,7 +11,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root_node: Node) -> Self {
+    pub fn new(root_node: impl IntoNode) -> Self {
+        let root_node = root_node.into_node();
         let layout = Runtime::with(|rt| rt.node(root_node.id).layout);
 
         Self {

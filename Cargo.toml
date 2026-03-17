@@ -1,5 +1,5 @@
 [workspace]
-members = ["mue-core", "mue-macroquad"]
+members = ["mue-core", "mue-macros", "mue-macroquad"]
 resolver = "2"
 
 [workspace.package]

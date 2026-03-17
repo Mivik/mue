@@ -1,18 +1,15 @@
 use taffy::Display;
 
 use crate::{
-    layout::use_layout,
-    node::{children::IntoChildren, Node, NodeInner},
-    Style,
+    layout::{use_layout, Style},
+    Styleable,
 };
 
-pub fn div(children: impl IntoChildren) -> Node {
-    flexbox(children).styled(Style::new().display(Display::Block))
+#[mue_macros::node]
+pub fn flexbox(style: Style) {
+    use_layout(style);
 }
 
-pub fn flexbox(children: impl IntoChildren) -> Node {
-    Node::build(move || {
-        use_layout();
-        NodeInner::set_children(children.into_children());
-    })
+pub fn div() -> FlexboxBuilder {
+    flexbox().display(Display::Block)
 }

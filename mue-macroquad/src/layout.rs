@@ -37,18 +37,29 @@ macro_rules! define_style {
             $(pub $name: Prop<$ty>),*
         }
 
-        impl Style {
+        pub trait Styleable: Sized {
+            fn style_mut(&mut self) -> &mut Style;
+
             $(
-                pub fn $name(mut self, value: impl Into<Prop<$ty>>) -> Self {
-                    self.$name = Some(value.into());
+                fn $name(mut self, value: impl IntoProp<$ty>) -> Self {
+                    self.style_mut().$name = Some(value.into_prop());
                     self
                 }
             )*
+        }
 
-            pub fn merge(&mut self, other: Self) {
+        impl Styleable for Style {
+            fn style_mut(&mut self) -> &mut Style {
+                self
+            }
+        }
+
+        impl Style {
+            pub fn merge(mut self, other: Self) -> Self {
                 $(
                     self.$name = self.$name.or(other.$name);
                 )*
+                self
             }
 
             fn compute(self) -> ComputedStyle {
@@ -138,20 +149,45 @@ impl Layout {
     }
 }
 
-pub fn use_layout() -> Layout {
+pub fn use_layout(style: Style) -> Layout {
     NodeInner::with_mut(|node| {
         if node.layout.is_some() {
             panic!("use_layout can only be called once per node");
         }
+        let style = style.build();
 
         let layout_id =
             Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(Default::default()).unwrap());
-        let layout = Layout::new(layout_id);
+        watch_effect(move || {
+            Runtime::with(|rt| {
+                rt.taffy
+                    .borrow_mut()
+                    .set_style(layout_id, style.get_clone())
+                    .unwrap();
+            });
+        });
 
+        let layout = Layout::new(layout_id);
         node.layout = Some(layout);
-        // Setup style effect
-        node.apply_style(Style::new());
-        node.check_layout_children_effect();
+
+        let children = *node.children;
+        node
+            .scope
+            .run(|| {
+                watch_effect(move || {
+                    Runtime::with(|rt| {
+                        let children = children.get_clone();
+                        let mut taffy = rt.taffy.borrow_mut();
+                        taffy.remove_children_range(layout.id(), ..).unwrap();
+                        for child_layout in
+                            children.iter().filter_map(|node| rt.node(node.id).layout)
+                        {
+                            taffy.add_child(layout.id(), child_layout.id()).unwrap();
+                        }
+                    });
+                })
+            });
+
         layout
     })
 }

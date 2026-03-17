@@ -7,6 +7,6 @@ mod scope;
 pub mod signal;
 
 pub use disposable::{Disposable, Owned};
-pub use prop::Prop;
+pub use prop::{IntoProp, Prop};
 pub use runtime::batch;
 pub use scope::Scope;

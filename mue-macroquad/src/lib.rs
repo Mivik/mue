@@ -3,13 +3,12 @@ pub mod hook;
 mod layout;
 pub mod node;
 mod paint;
-mod prop;
 mod runtime;
 mod shader;
 
 pub use app::App;
-pub use layout::{Layout, Style};
-pub use node::NodeRef;
+pub use layout::{Layout, Style, Styleable};
+pub use node::{IntoNode, Node, NodeRef};
 pub use paint::Paint;
 pub use shader::SharedTexture;
 
