@@ -27,6 +27,13 @@ impl Drop for Inner {
 #[repr(transparent)]
 pub struct SharedTexture(Arc<Inner>);
 
+impl PartialEq for SharedTexture {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 .0.raw_miniquad_texture_handle() == other.0 .0.raw_miniquad_texture_handle()
+    }
+}
+impl Eq for SharedTexture {}
+
 impl Deref for SharedTexture {
     type Target = Texture2D;
 
@@ -89,7 +96,12 @@ pub struct TextureShader {
 }
 
 impl TextureShader {
-    pub fn new(texture: SharedTexture, texture_region: Rect, draw_rect: Rect, color: Color) -> Self {
+    pub fn new(
+        texture: SharedTexture,
+        texture_region: Rect,
+        draw_rect: Rect,
+        color: Color,
+    ) -> Self {
         Self {
             texture,
             texture_region,

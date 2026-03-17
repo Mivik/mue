@@ -16,4 +16,5 @@ mue-macros = { path = "../mue-macros" }
 nalgebra = "0.33.2"
 paste = "1.0.15"
 slotmap = "1.1.1"
+smallvec = "1.13.2"
 taffy = "0.9.2"

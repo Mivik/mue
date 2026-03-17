@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use mue_core::{effect::computed_always, prelude::Access, prop::PropValue};
+use mue_core::{prelude::Access, prop::PropValue};
 
 use crate::{
     hook::on_render,
@@ -33,8 +33,9 @@ pub fn image(
     let Layout { rect, .. } = use_layout(&mut style);
     let paint = use_paint(&mut style);
 
-    let shader = computed_always(move |_| {
-        let texture = texture.get_clone();
+    let texture_clone = texture.clone();
+    let shapes = paint.build(move |p| {
+        let texture = texture_clone.get_clone();
         let region = region
             .get_clone()
             .unwrap_or_else(|| Rect::new(0., 0., texture.width(), texture.height()));
@@ -54,12 +55,12 @@ pub fn image(
             uv_region,
         );
 
-        TextureShader::new(texture, adjusted_uv, draw_rect, color.get())
+        let shader = TextureShader::new(texture, adjusted_uv, draw_rect, color.get());
+        p.fill_rect(draw_rect, shader);
     });
-    let shape = paint.build_fill_rect(shader.map(|shader| shader.draw_rect), shader);
 
     on_render(move |_| {
-        shape.get_clone().draw();
+        shapes.get_clone().draw();
     });
 }
 

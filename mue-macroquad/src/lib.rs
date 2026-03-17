@@ -9,7 +9,7 @@ mod shader;
 pub use app::App;
 pub use layout::{Layout, Style, Styleable};
 pub use node::{IntoNode, Node, NodeRef};
-pub use paint::{Paint, PaintInner};
+pub use paint::{Paint, Shapes, ShapesBuilder};
 pub use shader::SharedTexture;
 
 pub type Point = nalgebra::Point2<f32>;
