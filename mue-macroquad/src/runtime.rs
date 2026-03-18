@@ -1,4 +1,7 @@
-use std::{cell::{Ref, RefCell}, thread::AccessError};
+use std::{
+    cell::{Ref, RefCell},
+    thread::AccessError,
+};
 
 use slotmap::SlotMap;
 use taffy::TaffyTree;

@@ -1,8 +1,8 @@
 use taffy::Display;
 
 use crate::{
-    layout::{use_layout, Style},
-    Styleable,
+    layout::use_layout,
+    style::{Style, Styleable},
 };
 
 #[mue_macros::node]

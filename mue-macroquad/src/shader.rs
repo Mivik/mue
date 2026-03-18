@@ -1,9 +1,21 @@
-use std::{ops::Deref, sync::Arc};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use macroquad::prelude::*;
 use mue_core::prop::PropValue;
 
 use crate::{Matrix, Point};
+
+thread_local! {
+    static DELETE_QUEUE: RefCell<Vec<Texture2D>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(crate) fn consume_delete_queue() {
+    DELETE_QUEUE.with_borrow_mut(|queue| {
+        for texture in queue.drain(..) {
+            texture.delete();
+        }
+    });
+}
 
 fn lerp_color(a: Color, b: Color, t: f32) -> Color {
     Color {
@@ -19,13 +31,13 @@ struct Inner(Texture2D);
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.0.delete();
+        let _ = DELETE_QUEUE.try_with(|queue| queue.borrow_mut().push(self.0));
     }
 }
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct SharedTexture(Arc<Inner>);
+pub struct SharedTexture(Rc<Inner>);
 
 impl PartialEq for SharedTexture {
     fn eq(&self, other: &Self) -> bool {
@@ -44,7 +56,7 @@ impl Deref for SharedTexture {
 
 impl From<Texture2D> for SharedTexture {
     fn from(value: Texture2D) -> Self {
-        Self(Arc::new(Inner(value)))
+        Self(Rc::new(Inner(value)))
     }
 }
 

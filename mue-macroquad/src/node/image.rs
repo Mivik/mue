@@ -3,10 +3,11 @@ use mue_core::{prelude::Access, prop::PropValue};
 
 use crate::{
     hook::on_render,
-    layout::{use_layout, Style},
+    layout::{use_layout, Layout},
     paint::use_paint,
-    shader::TextureShader,
-    Layout, SharedTexture, Vector,
+    shader::{SharedTexture, TextureShader},
+    style::Style,
+    Vector,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

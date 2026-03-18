@@ -1,5 +1,3 @@
-use std::iter;
-
 use heck::ToUpperCamelCase;
 use proc_macro::TokenStream;
 use proc_macro_crate::{crate_name, FoundCrate};
@@ -7,10 +5,22 @@ use quote::quote;
 use syn::{parse_macro_input, FnArg, ItemFn, Meta, Pat, Type};
 
 #[proc_macro_attribute]
-pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
+pub fn node(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    make_fn(item, true)
+}
+
+#[proc_macro_attribute]
+pub fn component(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    make_fn(item, false)
+}
+
+fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let macroquad = match crate_name("mue-macroquad").expect("mue-macroquad not found") {
         FoundCrate::Itself => quote! { crate },
-        FoundCrate::Name(name) => quote! { ::#name },
+        FoundCrate::Name(name) => {
+            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            quote! { ::#ident }
+        }
     };
     let option = quote! { ::std::option::Option };
     let prop = quote! { ::mue_core::prop::Prop };
@@ -72,23 +82,23 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let fields = args
-        .iter()
-        .map(|arg| match arg {
-            Arg::Style(ty) => {
-                quote! { style: #ty }
-            }
-            Arg::Prop { ident, ty, default } => {
-                if default.is_some() {
-                    quote! { #ident: #option<#prop<#ty>> }
-                } else {
-                    quote! { #ident: #prop<#ty> }
+    let fields =
+        args.iter()
+            .map(|arg| match arg {
+                Arg::Style(ty) => {
+                    quote! { style: #ty }
                 }
-            }
-        })
-        .chain(iter::once(
-            quote! { children: #option<::mue_core::Owned<#macroquad::node::Children>> },
-        ));
+                Arg::Prop { ident, ty, default } => {
+                    if default.is_some() {
+                        quote! { #ident: #option<#prop<#ty>> }
+                    } else {
+                        quote! { #ident: #prop<#ty> }
+                    }
+                }
+            })
+            .chain(node.then(
+                || quote! { children: #option<::mue_core::Owned<#macroquad::node::Children>> },
+            ));
     let setters = args
         .iter()
         .filter_map(|arg| match arg {
@@ -106,10 +116,12 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
             }
             _ => None,
         })
-        .chain(iter::once(quote! {
-            pub fn children(mut self, children: impl #macroquad::node::IntoChildren) -> Self {
-                self.children = Some(#macroquad::node::IntoChildren::into_children(children));
-                self
+        .chain(node.then(|| {
+            quote! {
+                pub fn children(mut self, children: impl #macroquad::node::IntoChildren) -> Self {
+                    self.children = Some(#macroquad::node::IntoChildren::into_children(children));
+                    self
+                }
             }
         }));
 
@@ -139,7 +151,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let prop_struct_init = args
         .iter()
         .map(|arg| match arg {
-            Arg::Style(_) => quote! { style: #macroquad::Style::default() },
+            Arg::Style(_) => quote! { style: #macroquad::style::Style::default() },
             Arg::Prop { ident, default, .. } => {
                 if default.is_none() {
                     quote! { #ident: #into::into(#ident) }
@@ -148,7 +160,7 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
                 }
             }
         })
-        .chain(iter::once(quote! { children: None }));
+        .chain(node.then(|| quote! { children: None }));
 
     let invoke_args = args.iter().map(|arg| match arg {
         Arg::Style(_) => quote! { self.style },
@@ -168,11 +180,27 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
         input.sig.ident.span(),
     );
 
+    let into_node = if node {
+        quote! {
+            let children = self
+                .children
+                .unwrap_or_else(|| #macroquad::node::IntoChildren::into_children(()));
+            #macroquad::node::Node::build_with_children(children, move || {
+                #ident(#( #invoke_args ),*)
+            })
+        }
+    } else {
+        quote! {
+            let result = #ident(#( #invoke_args ),*);
+            #macroquad::node::IntoNode::into_node(result)
+        }
+    };
+
     let mut style_derive = quote! {};
     if args.iter().any(|arg| matches!(arg, Arg::Style(_))) {
         style_derive = quote! {
-            impl #macroquad::Styleable for #builder_name {
-                fn style_mut(&mut self) -> &mut #macroquad::Style {
+            impl #macroquad::style::Styleable for #builder_name {
+                fn style_mut(&mut self) -> &mut #macroquad::style::Style {
                     &mut self.style
                 }
             }
@@ -194,16 +222,10 @@ pub fn node(_attr: TokenStream, input: TokenStream) -> TokenStream {
             #( #setters )*
         }
 
-        impl #macroquad::IntoNode for #builder_name {
-            fn into_node(self) -> #macroquad::Node {
+        impl #macroquad::node::IntoNode for #builder_name {
+            fn into_node(self) -> #macroquad::node::Node {
                 #input
-
-                let children = self
-                    .children
-                    .unwrap_or_else(|| #macroquad::node::IntoChildren::into_children(()));
-                #macroquad::Node::build_with_children(children, move || {
-                    #ident(#( #invoke_args ),*)
-                })
+                #into_node
             }
         }
 

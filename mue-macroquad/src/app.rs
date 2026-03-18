@@ -2,7 +2,10 @@ use macroquad::prelude::*;
 use mue_core::batch;
 use taffy::{AvailableSpace, Size};
 
-use crate::{node::Node, runtime::Runtime, IntoNode};
+use crate::{
+    node::{IntoNode, Node},
+    runtime::Runtime,
+};
 
 pub struct App {
     root_node: Node,
@@ -14,7 +17,10 @@ impl App {
         let root_node = root_node.into_node();
         let layout_id = Runtime::with(|rt| rt.node(root_node.id).layout_id);
 
-        Self { root_node, layout_id }
+        Self {
+            root_node,
+            layout_id,
+        }
     }
 
     pub fn frame(&self) {
@@ -35,5 +41,7 @@ impl App {
             }
             self.root_node.render();
         });
+
+        crate::shader::consume_delete_queue();
     }
 }

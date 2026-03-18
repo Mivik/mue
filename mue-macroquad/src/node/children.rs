@@ -8,10 +8,7 @@ use mue_core::{
     Disposable, Owned,
 };
 
-use crate::{
-    node::{IntoNode, Node},
-    NodeRef,
-};
+use crate::node::{IntoNode, Node, NodeRef};
 
 pub type Children = ReadSignal<Rc<[NodeRef]>>;
 

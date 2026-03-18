@@ -5,9 +5,10 @@ use mue_core::signal::Access;
 
 use crate::{
     hook::on_render,
-    layout::{use_layout, Style},
+    layout::{use_layout, Layout},
     paint::{use_paint, Shapes},
-    Layout, Point,
+    style::Style,
+    Point,
 };
 
 #[mue_macros::node]
