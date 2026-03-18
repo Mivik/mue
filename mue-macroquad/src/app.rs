@@ -29,11 +29,16 @@ impl App {
                 Runtime::with(|rt| {
                     let mut taffy = rt.taffy.borrow_mut();
                     taffy
-                        .compute_layout(
+                        .compute_layout_with_measure(
                             layout_id,
                             Size {
                                 width: AvailableSpace::Definite(screen_width()),
                                 height: AvailableSpace::Definite(screen_height()),
+                            },
+                            |known_dimensions, available_space, _node_id, node_context, _style| {
+                                node_context.map_or(Size::ZERO, |f| {
+                                    f.measure(known_dimensions, available_space)
+                                })
                             },
                         )
                         .unwrap();

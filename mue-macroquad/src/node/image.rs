@@ -1,9 +1,14 @@
 use macroquad::prelude::*;
-use mue_core::{prelude::Access, prop::PropValue};
+use mue_core::{
+    effect::{computed, watch},
+    prelude::Access,
+    prop::PropValue,
+};
+use taffy::{AvailableSpace, Size};
 
 use crate::{
     hook::on_render,
-    layout::{use_layout, Layout},
+    layout::use_layout,
     math::{vec2, Rect, Vector},
     paint::use_paint,
     shader::{SharedTexture, TextureShader},
@@ -31,12 +36,47 @@ pub fn image(
     #[default] region: Option<Rect>,
     #[default(WHITE)] color: Color,
 ) {
-    let Layout { rect, .. } = use_layout(&mut style);
+    let layout = use_layout(&mut style);
+    let rect = layout.rect;
     let paint = use_paint(&mut style);
 
-    let texture_clone = texture.clone();
+    layout.set_measure_fn({
+        let texture = texture.clone();
+        move |known_dimensions: Size<Option<f32>>, _available_space: Size<AvailableSpace>| {
+            let texture = texture.get_clone_untracked();
+            let w = texture.width();
+            let h = texture.height();
+            let aspect_ratio = w / h;
+            match (known_dimensions.width, known_dimensions.height) {
+                (Some(width), Some(height)) => Size { width, height },
+                (Some(width), None) => Size {
+                    width,
+                    height: width / aspect_ratio,
+                },
+                (None, Some(height)) => Size {
+                    width: height * aspect_ratio,
+                    height,
+                },
+                (None, None) => Size {
+                    width: w,
+                    height: h,
+                },
+            }
+        }
+    });
+    // TODO: simplify watch source
+    watch(
+        computed({
+            let texture = texture.clone();
+            move |_| (texture.get_clone(), region.get_clone())
+        }),
+        move |_| {
+            layout.mark_dirty();
+        },
+    );
+
     let shapes = paint.build(move |p| {
-        let texture = texture_clone.get_clone();
+        let texture = texture.get_clone();
         let region = region
             .get_clone()
             .unwrap_or_else(|| Rect::new(0., 0., texture.width(), texture.height()));

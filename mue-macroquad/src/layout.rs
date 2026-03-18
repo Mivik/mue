@@ -1,10 +1,51 @@
 use mue_core::prelude::*;
+use taffy::{AvailableSpace, Size};
 
 use crate::{math::Rect, node::NodeInner, runtime::Runtime, style::Style};
 
+pub trait MeasureFn {
+    fn measure(
+        &mut self,
+        known_dimensions: Size<Option<f32>>,
+        available_space: Size<AvailableSpace>,
+    ) -> Size<f32>;
+}
+
+impl<F> MeasureFn for F
+where
+    F: FnMut(Size<Option<f32>>, Size<AvailableSpace>) -> Size<f32>,
+{
+    fn measure(
+        &mut self,
+        known_dimensions: Size<Option<f32>>,
+        available_space: Size<AvailableSpace>,
+    ) -> Size<f32> {
+        self(known_dimensions, available_space)
+    }
+}
+
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Layout {
+    pub layout_id: taffy::NodeId,
     pub rect: ReadSignal<Rect>,
+}
+
+impl Layout {
+    pub fn set_measure_fn(&self, measure_fn: impl MeasureFn + 'static) {
+        Runtime::with(|rt| {
+            rt.taffy
+                .borrow_mut()
+                .set_node_context(self.layout_id, Some(Box::new(measure_fn)))
+                .unwrap();
+        });
+    }
+
+    pub fn mark_dirty(&self) {
+        Runtime::with(|rt| {
+            rt.taffy.borrow_mut().mark_dirty(self.layout_id).unwrap();
+        });
+    }
 }
 
 pub(crate) struct OwnedLayout {
@@ -60,6 +101,7 @@ pub fn use_layout(style: &mut Style) -> Layout {
         });
 
         Layout {
+            layout_id,
             rect: *node.layout.rect,
         }
     })

@@ -119,6 +119,9 @@ define_style! {
     width: Dimension = Dimension::auto();
     height: Dimension = Dimension::auto();
 
+    min_width: Dimension = Dimension::auto();
+    min_height: Dimension = Dimension::auto();
+
     align_items: Option<taffy::AlignItems>;
     align_self: Option<taffy::AlignSelf>;
     justify_items: Option<taffy::AlignItems>;
@@ -146,7 +149,7 @@ impl Style {
     }
 
     pub(crate) fn build_taffy(&mut self) -> ReadSignal<taffy::Style> {
-        fn size<S>(width: Prop<S>, height: Prop<S>) -> Prop<taffy::Size<S>>
+        fn to_size<S>(width: Prop<S>, height: Prop<S>) -> Prop<taffy::Size<S>>
         where
             S: Clone + PartialEq + 'static,
         {
@@ -157,7 +160,8 @@ impl Style {
             .into()
         }
 
-        let size = size(self.take_width(), self.take_height());
+        let size = to_size(self.take_width(), self.take_height());
+        let min_size = to_size(self.take_min_width(), self.take_min_height());
         let display = self.take_display();
 
         let align_items = self.take_align_items();
@@ -180,6 +184,7 @@ impl Style {
             display: display.get(),
 
             size: size.get(),
+            min_size: min_size.get(),
 
             align_items: align_items.get(),
             align_self: align_self.get(),

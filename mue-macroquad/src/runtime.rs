@@ -6,14 +6,17 @@ use std::{
 use slotmap::SlotMap;
 use taffy::TaffyTree;
 
-use crate::node::{NodeId, NodeInner};
+use crate::{
+    layout::MeasureFn,
+    node::{NodeId, NodeInner},
+};
 
 thread_local! {
     static RUNTIME: Runtime = Runtime::new();
 }
 
 pub(crate) struct Runtime {
-    pub taffy: RefCell<TaffyTree<()>>,
+    pub taffy: RefCell<TaffyTree<Box<dyn MeasureFn>>>,
     pub nodes: RefCell<SlotMap<NodeId, NodeInner>>,
 }
 

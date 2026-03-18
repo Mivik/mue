@@ -27,6 +27,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let into = quote! { ::std::convert::Into };
 
     let mut input = parse_macro_input!(input as ItemFn);
+    let (impl_generics, ty_generics, where_clause) = input.sig.generics.split_for_impl();
     let vis = &input.vis;
     let ident = &input.sig.ident;
 
@@ -199,7 +200,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let mut style_derive = quote! {};
     if args.iter().any(|arg| matches!(arg, Arg::Style(_))) {
         style_derive = quote! {
-            impl #macroquad::style::Styleable for #builder_name {
+            impl #impl_generics #macroquad::style::Styleable for #builder_name #ty_generics #where_clause {
                 fn style_mut(&mut self) -> &mut #macroquad::style::Style {
                     &mut self.style
                 }
@@ -208,11 +209,11 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     }
 
     quote! {
-        pub struct #builder_name {
+        pub struct #builder_name #ty_generics #where_clause {
             #( #fields ),*
         }
 
-        impl #builder_name {
+        impl #impl_generics #builder_name #ty_generics #where_clause {
             pub fn new(#( #new_args ),*) -> Self {
                 Self {
                     #( #prop_struct_init ),*
@@ -222,7 +223,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
             #( #setters )*
         }
 
-        impl #macroquad::node::IntoNode for #builder_name {
+        impl #impl_generics #macroquad::node::IntoNode for #builder_name #ty_generics #where_clause {
             fn into_node(self) -> #macroquad::node::Node {
                 #input
                 #into_node
@@ -231,7 +232,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
 
         #style_derive
 
-        #vis fn #ident(#( #new_args ),*) -> #builder_name {
+        #vis fn #ident #impl_generics(#( #new_args ),*) -> #builder_name #ty_generics #where_clause {
             #builder_name::new(#( #new_arg_names ),*)
         }
     }

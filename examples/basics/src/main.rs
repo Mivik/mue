@@ -35,7 +35,7 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
             |&value| value,
             move |&i| {
                 image(texture.clone())
-                    .w_auto()
+                    .min_width(Dimension::length(0.))
                     .height(time.map(move |t: f32| {
                         Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
                     }))
@@ -76,6 +76,7 @@ async fn the_main() {
     let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
 
     let root = view(texture, *time);
+    // let root = flexbox().size_full().children((image(texture).flex_1(),));
     let app = App::new(root);
 
     loop {
