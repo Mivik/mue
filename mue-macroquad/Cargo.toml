@@ -7,13 +7,13 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+glam = "0.32.1"
 glyph_brush = "0.7.12"
 lyon = "1.0.19"
 macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "df81b76", default-features = false }
 miniquad = { git = "https://github.com/Mivik/prpr-miniquad", rev = "0694542" }
 mue-core = { workspace = true, features = ["impl-taffy"] }
 mue-macros = { workspace = true }
-nalgebra = { workspace = true }
 paste = "1.0.15"
 slotmap = { workspace = true }
 smallvec = { workspace = true }

@@ -1,7 +1,6 @@
-use macroquad::math::Rect;
 use mue_core::prelude::*;
 
-use crate::{node::NodeInner, runtime::Runtime, style::Style};
+use crate::{math::Rect, node::NodeInner, runtime::Runtime, style::Style};
 
 #[non_exhaustive]
 pub struct Layout {

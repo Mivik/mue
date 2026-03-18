@@ -1,6 +1,53 @@
-use taffy::{Dimension, FlexDirection};
+use paste::paste;
+use taffy::{AlignContent, AlignItems, Dimension, FlexDirection, Position};
 
 use super::Styleable;
+
+macro_rules! impl_align_content {
+    ($prefix:ident, $fn:ident) => {
+        paste! {
+            fn [<$prefix _start>](self) -> Self {
+                self.$fn(AlignContent::FlexStart)
+            }
+            fn [<$prefix _end>](self) -> Self {
+                self.$fn(AlignContent::FlexEnd)
+            }
+            fn [<$prefix _center>](self) -> Self {
+                self.$fn(AlignContent::Center)
+            }
+            fn [<$prefix _between>](self) -> Self {
+                self.$fn(AlignContent::SpaceBetween)
+            }
+            fn [<$prefix _around>](self) -> Self {
+                self.$fn(AlignContent::SpaceAround)
+            }
+            fn [<$prefix _evenly>](self) -> Self {
+                self.$fn(AlignContent::SpaceEvenly)
+            }
+            fn [<$prefix _stretch>](self) -> Self {
+                self.$fn(AlignContent::Stretch)
+            }
+        }
+    };
+}
+macro_rules! impl_align_items {
+    ($prefix:ident, $fn:ident) => {
+        paste! {
+            fn [<$prefix _start>](self) -> Self {
+                self.$fn(AlignItems::FlexStart)
+            }
+            fn [<$prefix _end>](self) -> Self {
+                self.$fn(AlignItems::FlexEnd)
+            }
+            fn [<$prefix _center>](self) -> Self {
+                self.$fn(AlignItems::Center)
+            }
+            fn [<$prefix _stretch>](self) -> Self {
+                self.$fn(AlignItems::Stretch)
+            }
+        }
+    };
+}
 
 pub trait StyleableExt: Styleable {
     fn w_full(self) -> Self {
@@ -22,12 +69,32 @@ pub trait StyleableExt: Styleable {
             .height(Dimension::percent(1.))
     }
 
+    fn relative(self) -> Self {
+        self.position(Position::Relative)
+    }
+    fn absolute(self) -> Self {
+        self.position(Position::Absolute)
+    }
+
+    fn flex_1(self) -> Self {
+        self.flex_grow(1.).flex_shrink(1.)
+    }
+    fn flex_none(self) -> Self {
+        self.flex_grow(0.).flex_shrink(0.)
+    }
+
     fn flex_row(self) -> Self {
         self.flex_direction(FlexDirection::Row)
     }
     fn flex_column(self) -> Self {
         self.flex_direction(FlexDirection::Column)
     }
+
+    impl_align_content!(align, align_content);
+    impl_align_content!(justify, justify_content);
+
+    impl_align_items!(items, align_items);
+    impl_align_items!(justify_items, justify_items);
 }
 
 impl<T: Styleable> StyleableExt for T {}

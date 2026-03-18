@@ -3,7 +3,7 @@ use std::{cell::RefCell, ops::Deref, rc::Rc};
 use macroquad::prelude::*;
 use mue_core::prop::PropValue;
 
-use crate::{Matrix, Point};
+use crate::math::{vec2, Matrix, Rect, Vector};
 
 thread_local! {
     static DELETE_QUEUE: RefCell<Vec<Texture2D>> = const { RefCell::new(Vec::new()) };
@@ -63,7 +63,7 @@ impl From<Texture2D> for SharedTexture {
 impl PropValue for SharedTexture {}
 
 pub trait Shader {
-    fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex;
+    fn new_vertex(&self, mat: &Matrix, p: &Vector, alpha: f32) -> Vertex;
 
     fn texture(&self) -> Option<SharedTexture>;
 }
@@ -79,8 +79,8 @@ pub struct GradientShader {
 }
 
 impl Shader for GradientShader {
-    fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex {
-        let t = mat.transform_point(p);
+    fn new_vertex(&self, mat: &Matrix, p: &Vector, alpha: f32) -> Vertex {
+        let t = mat.transform_point2(*p);
         let mut color = {
             let (dx, dy) = (p.x - self.origin.0, p.y - self.origin.1);
             lerp_color(
@@ -124,8 +124,8 @@ impl TextureShader {
 }
 
 impl Shader for TextureShader {
-    fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex {
-        let t = mat.transform_point(p);
+    fn new_vertex(&self, mat: &Matrix, p: &Vector, alpha: f32) -> Vertex {
+        let t = mat.transform_point2(*p);
         let tr = self.texture_region;
         let dr = self.draw_rect;
         let ux = (p.x - dr.x) / dr.w;
@@ -151,18 +151,18 @@ impl Shader for TextureShader {
 }
 
 pub struct RadialShader {
-    origin: Point,
+    origin: Vector,
     radius: f32,
     color: Color,
     color_end: Color,
 }
 
 impl Shader for RadialShader {
-    fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex {
-        let e = (p - self.origin).norm() / self.radius;
+    fn new_vertex(&self, mat: &Matrix, p: &Vector, alpha: f32) -> Vertex {
+        let e = (p - self.origin).length() / self.radius;
         let mut color = lerp_color(self.color, self.color_end, e);
         color.a *= alpha;
-        let t = mat.transform_point(p);
+        let t = mat.transform_point2(*p);
         Vertex::new(t.x, t.y, 0., 0., 0., color)
     }
 
@@ -222,7 +222,7 @@ impl IntoShader for (Color, (f32, f32), Color, f32) {
     fn into_shader(self) -> Self::Target {
         let (color, origin, color_end, radius) = self;
         RadialShader {
-            origin: Point::new(origin.0, origin.1),
+            origin: vec2(origin.0, origin.1),
             radius,
             color,
             color_end,

@@ -10,11 +10,10 @@ pub use image::image;
 
 use std::{cell::RefCell, ops::Deref};
 
-use macroquad::math::Rect;
 use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
 use slotmap::new_key_type;
 
-use crate::{hook::Hooks, layout::OwnedLayout, runtime::Runtime};
+use crate::{hook::Hooks, layout::OwnedLayout, math::Rect, runtime::Runtime};
 
 new_key_type! {
     pub(crate) struct NodeId;

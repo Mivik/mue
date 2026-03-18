@@ -8,19 +8,52 @@ use mue_core::{
     signal::{Access, ReadSignal},
 };
 use paste::paste;
-use taffy::{Dimension, Display};
+use taffy::{BoxSizing, Dimension, Display, Position, Size};
 
-use crate::Matrix;
+use crate::math::Matrix;
 
-pub fn size<S: Clone + PartialEq + 'static>(
+pub struct SizeProp<S> {
     width: Prop<S>,
     height: Prop<S>,
-) -> Prop<taffy::Size<S>> {
-    // TODO: optimize when input are static?
-    Prop::Dynamic(computed(move |_| taffy::Size {
-        width: width.get_clone(),
-        height: height.get_clone(),
-    }))
+    full: Option<Prop<Size<S>>>,
+}
+impl<S> SizeProp<S>
+where
+    S: Clone + PartialEq + 'static,
+{
+    fn spread(&mut self) {
+        if let Some(full) = self.full.take() {
+            self.width = full.clone().map(|s| s.width);
+            self.height = full.map(|s| s.height);
+        }
+    }
+
+    pub fn width(mut self, value: impl Into<Prop<S>>) -> Self {
+        self.spread();
+        self.width = value.into();
+        self
+    }
+
+    pub fn height(mut self, value: impl Into<Prop<S>>) -> Self {
+        self.spread();
+        self.height = value.into();
+        self
+    }
+
+    pub fn set(mut self, value: impl Into<Prop<Size<S>>>) -> Self {
+        self.full = Some(value.into());
+        self
+    }
+
+    pub fn build(self) -> Prop<taffy::Size<S>> {
+        self.full.unwrap_or_else(|| {
+            computed(move |_| taffy::Size {
+                width: self.width.get_clone(),
+                height: self.height.get_clone(),
+            })
+            .into()
+        })
+    }
 }
 
 macro_rules! define_style {
@@ -79,6 +112,8 @@ macro_rules! define_style {
 
 define_style! {
     // Taffy
+    box_sizing: BoxSizing;
+
     display: Display;
 
     width: Dimension = Dimension::auto();
@@ -91,6 +126,8 @@ define_style! {
     align_content: Option<taffy::AlignContent>;
     justify_content: Option<taffy::JustifyContent>;
 
+    position: Position;
+
     flex_direction: taffy::FlexDirection;
     flex_wrap: taffy::FlexWrap;
 
@@ -99,7 +136,7 @@ define_style! {
     flex_shrink: f32 = 1.0;
 
     // Paint
-    transform: Matrix = Matrix::identity();
+    transform: Matrix = Matrix::IDENTITY;
     opacity: f32 = 1.0;
 }
 
@@ -109,7 +146,18 @@ impl Style {
     }
 
     pub(crate) fn build_taffy(&mut self) -> ReadSignal<taffy::Style> {
-        let size: Prop<taffy::Size<Dimension>> = size(self.take_width(), self.take_height());
+        fn size<S>(width: Prop<S>, height: Prop<S>) -> Prop<taffy::Size<S>>
+        where
+            S: Clone + PartialEq + 'static,
+        {
+            computed(move |_| taffy::Size {
+                width: width.get_clone(),
+                height: height.get_clone(),
+            })
+            .into()
+        }
+
+        let size = size(self.take_width(), self.take_height());
         let display = self.take_display();
 
         let align_items = self.take_align_items();
@@ -118,6 +166,8 @@ impl Style {
         let justify_self = self.take_justify_self();
         let align_content = self.take_align_content();
         let justify_content = self.take_justify_content();
+
+        let position = self.take_position();
 
         let flex_direction = self.take_flex_direction();
         let flex_wrap = self.take_flex_wrap();
@@ -137,6 +187,8 @@ impl Style {
             justify_self: justify_self.get(),
             align_content: align_content.get(),
             justify_content: justify_content.get(),
+
+            position: position.get(),
 
             flex_direction: flex_direction.get(),
             flex_wrap: flex_wrap.get(),

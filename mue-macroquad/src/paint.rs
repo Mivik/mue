@@ -17,9 +17,9 @@ use mue_core::{
 use smallvec::SmallVec;
 
 use crate::{
+    math::{vec2, Matrix, Rect, Vector},
     shader::{IntoShader, Shader, SharedTexture},
     style::Style,
-    Matrix, Point,
 };
 
 #[derive(Default)]
@@ -82,11 +82,15 @@ impl Paint {
     }
 }
 
+fn frobenius_norm(m: &Matrix) -> f32 {
+    (m.col(0).length_squared() + m.col(1).length_squared() + m.col(2).length_squared()).sqrt()
+}
+
 pub fn use_paint(style: &mut Style) -> Paint {
     fn extract<T: Clone + PartialEq + 'static>(
         prev: Option<Prop<T>>,
         style: Option<Prop<T>>,
-        default: impl Fn() -> T,
+        default: T,
         mut reduce: impl FnMut(T, T) -> T + 'static,
     ) -> Prop<T> {
         match (prev, style) {
@@ -95,24 +99,24 @@ pub fn use_paint(style: &mut Style) -> Paint {
             })),
             (Some(prev), None) => prev,
             (None, Some(style)) => style,
-            (None, None) => Prop::Static(default()),
+            (None, None) => Prop::Static(default),
         }
     }
 
     let transform = extract(
         mue_core::scope::inject::<Transform>().map(|it| it.0),
         style.transform,
-        Matrix::identity,
+        Matrix::IDENTITY,
         |a, b| a * b,
     );
     let opacity = extract(
         mue_core::scope::inject::<Opacity>().map(|it| it.0),
         style.opacity,
-        || 1.0,
+        1.0,
         |a, b| a * b,
     );
     let tolerance = transform.map(|t| {
-        let scale = t.svd_unordered(false, false).singular_values.max();
+        let scale = frobenius_norm(&t);
         0.2 / scale
     });
 
@@ -161,7 +165,7 @@ impl<T: Shader> FillVertexConstructor<Vertex> for ShaderConstructor<T> {
     fn new_vertex(&mut self, vertex: FillVertex) -> Vertex {
         let pos = vertex.position();
         self.shader
-            .new_vertex(&self.transform, &Point::new(pos.x, pos.y), self.alpha)
+            .new_vertex(&self.transform, &vec2(pos.x, pos.y), self.alpha)
     }
 }
 
@@ -169,7 +173,7 @@ impl<T: Shader> StrokeVertexConstructor<Vertex> for ShaderConstructor<T> {
     fn new_vertex(&mut self, vertex: StrokeVertex) -> Vertex {
         let pos = vertex.position();
         self.shader
-            .new_vertex(&self.transform, &Point::new(pos.x, pos.y), self.alpha)
+            .new_vertex(&self.transform, &vec2(pos.x, pos.y), self.alpha)
     }
 }
 
@@ -279,7 +283,7 @@ impl ShapesBuilder<'_> {
     }
 
     /// Fill a circle with the given shader.
-    pub fn fill_circle<S>(&mut self, center: Point, radius: f32, shader: S)
+    pub fn fill_circle<S>(&mut self, center: Vector, radius: f32, shader: S)
     where
         S: IntoShader,
     {
@@ -329,7 +333,7 @@ impl ShapesBuilder<'_> {
     }
 
     /// Stroke a circle with the given shader.
-    pub fn stroke_circle<S>(&mut self, center: Point, radius: f32, shader: S)
+    pub fn stroke_circle<S>(&mut self, center: Vector, radius: f32, shader: S)
     where
         S: IntoShader,
     {

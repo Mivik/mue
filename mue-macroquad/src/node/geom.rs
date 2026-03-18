@@ -8,7 +8,6 @@ use crate::{
     layout::{use_layout, Layout},
     paint::{use_paint, Shapes},
     style::Style,
-    Point,
 };
 
 #[mue_macros::node]
@@ -17,8 +16,7 @@ pub fn circle(mut style: Style) {
     let paint = use_paint(&mut style);
     let shapes = paint.build(move |p| {
         let r = rect.get();
-        let ct = r.center();
-        p.fill_circle(Point::new(ct.x, ct.y), r.w.min(r.h) / 2., WHITE);
+        p.fill_circle(r.center(), r.w.min(r.h) / 2., WHITE);
     });
     on_render(move |_| {
         shapes.get_clone().draw();

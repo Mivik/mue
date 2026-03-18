@@ -1,12 +1,13 @@
 use macroquad::prelude::*;
 use mue_core::prelude::*;
 use mue_macroquad::{
+    math::{Matrix, Vector},
     node::*,
     shader::SharedTexture,
     style::{Styleable, StyleableExt},
-    App, Matrix, Vector,
+    App,
 };
-use taffy::{AlignItems, Dimension};
+use taffy::Dimension;
 
 fn main() {
     macroquad::Window::from_config(
@@ -24,40 +25,40 @@ fn main() {
 
 #[mue_macros::component]
 fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
-    let sprites = map_keyed(
-        Prop::Dynamic(computed(move |_| {
-            let time = time.get();
-            let count = ((time * 2.) as usize + 1).min(10);
-            (0..count).collect()
-        })),
-        |&value| value,
-        move |&i| {
-            image(texture.clone())
-                .w_auto()
-                .height(time.map(move |t: f32| {
-                    Dimension::percent((t.min(4.) * (i + 1) as f32).sin() * 0.5 + 0.5)
-                }))
-                .opacity(time.map(move |t| (t * (i + 1) as f32).sin().abs()))
-                .flex_grow(1.)
-        },
-    );
+    let sprites =
+        map_keyed(
+            Prop::Dynamic(computed(move |_| {
+                let time = time.get();
+                let count = ((time * 2.) as usize + 1).min(10);
+                (0..count).collect()
+            })),
+            |&value| value,
+            move |&i| {
+                image(texture.clone())
+                    .w_auto()
+                    .height(time.map(move |t: f32| {
+                        Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
+                    }))
+                    .flex_grow(1.)
+            },
+        );
 
     let row = flexbox()
         .children(sprites)
         .flex_row()
         .w_full()
         .h_auto()
-        .flex_grow(1.)
-        .justify_items(AlignItems::Stretch);
+        .flex_1()
+        .items_center();
 
     flexbox()
         .children((
             row,
             circle()
                 .h_auto()
-                .flex_grow(1.)
+                .flex_1()
                 .transform(time.map(|t| {
-                    Matrix::new_translation(&Vector::new(
+                    Matrix::from_translation(Vector::new(
                         (t * 20.).cos() * 20.,
                         (t * 20.).sin() * 20.,
                     ))

@@ -4,10 +4,10 @@ use mue_core::{prelude::Access, prop::PropValue};
 use crate::{
     hook::on_render,
     layout::{use_layout, Layout},
+    math::{vec2, Rect, Vector},
     paint::use_paint,
     shader::{SharedTexture, TextureShader},
     style::Style,
-    Vector,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -27,7 +27,7 @@ pub fn image(
     mut style: Style,
     texture: SharedTexture,
     #[default] object_fit: ObjectFit,
-    #[default(Vector::new(0.5, 0.5))] object_position: Vector,
+    #[default(vec2(0.5, 0.5))] object_position: Vector,
     #[default] region: Option<Rect>,
     #[default(WHITE)] color: Color,
 ) {
@@ -116,7 +116,7 @@ fn calculate_draw_rect_and_uv(
         draw_width,
         draw_height,
     );
-    let draw_rect_clamped = draw_rect.intersect(container).unwrap();
+    let draw_rect_clamped = draw_rect.intersect(&container).unwrap();
     let uv_rect = Rect::new(
         uv_region.x + (draw_rect_clamped.x - draw_rect.x) / draw_rect.w * uv_region.w,
         uv_region.y + (draw_rect_clamped.y - draw_rect.y) / draw_rect.h * uv_region.h,
