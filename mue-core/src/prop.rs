@@ -20,17 +20,20 @@ impl<T: Default> Default for Prop<T> {
     }
 }
 
-impl<T: Clone + 'static> Access for Prop<T> {
+impl<T: 'static> Access for Prop<T> {
     type Value = T;
 
-    fn get_clone(&self) -> T {
+    fn track(&self) {
         match self {
-            Self::Static(value) => value.clone(),
-            Self::Dynamic(signal) => signal.get_clone(),
+            Self::Static(_) => {}
+            Self::Dynamic(signal) => signal.track(),
         }
     }
 
-    fn get_clone_untracked(&self) -> T {
+    fn get_clone_untracked(&self) -> T
+    where
+        T: Clone,
+    {
         match self {
             Self::Static(value) => value.clone(),
             Self::Dynamic(signal) => signal.get_clone_untracked(),
@@ -88,6 +91,8 @@ macro_rules! impl_into {
     };
 }
 impl_into!(String; &'_ str, Cow<'_, str>);
+impl_into!(Rc<str>; &'_ str, String);
+impl_into!(Arc<str>; &'_ str, String);
 impl_into!(PathBuf; &'_ str, &'_ Path, Cow<'_, Path>);
 impl_into!(OsString; &'_ str, &'_ OsStr, Cow<'_, OsStr>);
 

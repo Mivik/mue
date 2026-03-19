@@ -20,7 +20,7 @@ new_key_type! {
 pub(crate) type EffectCallback = Box<dyn FnMut(&mut Option<Value>) -> bool>;
 pub(crate) type CleanupCallback = Box<dyn FnOnce()>;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) enum EffectState {
     Clean,
     Check,
@@ -250,6 +250,7 @@ fn create_computed<T: 'static>(callback: EffectCallback) -> ReadSignal<T> {
         )
         .register(rt);
         rt.signal_mut(signal_id).effect = Some(effect_id);
+        rt.update(effect_id);
         ReadSignal::new(signal_id)
     })
 }
@@ -368,6 +369,22 @@ mod test {
 
         assert_eq!(*effect_runs.borrow(), 1);
         effect.dispose();
+    }
+
+    #[test]
+    fn test_watch_computed() {
+        let a = signal(1);
+        let b = computed(move |_| a.get() * 2);
+
+        let effect_runs = Rc::new(RefCell::new(0));
+        let effect_runs_clone = effect_runs.clone();
+
+        watch(b, move |_b| {
+            *effect_runs_clone.borrow_mut() += 1;
+        });
+
+        a.set(2);
+        assert_eq!(*effect_runs.borrow(), 1);
     }
 
     #[test]

@@ -57,7 +57,7 @@ impl<T> Clone for ReadSignal<T> {
 impl<T> Copy for ReadSignal<T> {}
 
 pub trait Access {
-    type Value: Clone;
+    type Value;
 
     fn get(&self) -> Self::Value
     where
@@ -73,11 +73,19 @@ pub trait Access {
         self.get_clone_untracked()
     }
 
-    fn get_clone(&self) -> Self::Value;
+    fn track(&self);
 
-    fn get_clone_untracked(&self) -> Self::Value {
-        self.get_clone()
+    fn get_clone(&self) -> Self::Value
+    where
+        Self::Value: Clone,
+    {
+        self.track();
+        self.get_clone_untracked()
     }
+
+    fn get_clone_untracked(&self) -> Self::Value
+    where
+        Self::Value: Clone;
 }
 
 impl<T> ReadSignal<T> {
@@ -131,28 +139,19 @@ impl<T> Disposable for ReadSignal<T> {
     }
 }
 
-impl<T: Clone + 'static> Access for ReadSignal<T> {
+impl<T: 'static> Access for ReadSignal<T> {
     type Value = T;
 
-    fn get_clone(&self) -> T {
-        Runtime::with(|rt| {
-            rt.track(self.id);
-            rt.update_if_necessary(self.id);
-            self.with_inner_mut(rt, |inner| {
-                inner
-                    .value
-                    .as_ref()
-                    .unwrap()
-                    .downcast_ref::<T>()
-                    .unwrap()
-                    .clone()
-            })
-        })
+    fn track(&self) {
+        Runtime::with(|rt| rt.track(self.id));
     }
 
-    fn get_clone_untracked(&self) -> T {
+    fn get_clone_untracked(&self) -> T
+    where
+        T: Clone,
+    {
         Runtime::with(|rt| {
-            rt.update_if_necessary(self.id);
+            rt.update_signal_if_necessary(self.id);
             self.with_inner_mut(rt, |inner| {
                 inner
                     .value
@@ -227,9 +226,10 @@ impl<T: 'static> Signal<T> {
         Runtime::with(|rt| {
             let updated = self.with_inner_mut(rt, |inner| {
                 let new_value = f(inner.value.as_ref().unwrap().downcast_ref::<T>().unwrap());
-                if inner.comparator.map_or(true, |cmp| {
-                    !cmp(inner.value.as_ref().unwrap().as_ref(), &new_value)
-                }) {
+                if inner
+                    .comparator
+                    .is_none_or(|cmp| !cmp(inner.value.as_ref().unwrap().as_ref(), &new_value))
+                {
                     inner.value = Some(Box::new(new_value));
                     true
                 } else {

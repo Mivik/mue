@@ -16,8 +16,12 @@ impl Rect {
         Self { x, y, w, h }
     }
 
-    pub fn origin(&self) -> Vector {
+    pub fn min(&self) -> Vector {
         vec2(self.x, self.y)
+    }
+
+    pub fn max(&self) -> Vector {
+        vec2(self.x + self.w, self.y + self.h)
     }
 
     pub fn size(&self) -> Vector {
@@ -53,5 +57,27 @@ impl Rect {
             && point.x <= self.x + self.w
             && point.y >= self.y
             && point.y <= self.y + self.h
+    }
+}
+
+impl From<macroquad::math::Rect> for Rect {
+    fn from(rect: macroquad::math::Rect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+        }
+    }
+}
+
+impl From<Rect> for macroquad::math::Rect {
+    fn from(rect: Rect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+        }
     }
 }

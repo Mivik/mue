@@ -53,6 +53,7 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
 
     flexbox()
         .children((
+            text("hello"),
             row,
             circle()
                 .h_auto()
@@ -76,7 +77,6 @@ async fn the_main() {
     let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
 
     let root = view(texture, *time);
-    // let root = flexbox().size_full().children((image(texture).flex_1(),));
     let app = App::new(root);
 
     loop {

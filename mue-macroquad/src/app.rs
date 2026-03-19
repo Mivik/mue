@@ -1,4 +1,4 @@
-use macroquad::prelude::*;
+use glam::vec2;
 use mue_core::batch;
 use taffy::{AvailableSpace, Size};
 
@@ -26,14 +26,13 @@ impl App {
     pub fn frame(&self) {
         batch(|| {
             if let Some(layout_id) = self.layout_id {
-                Runtime::with(|rt| {
-                    let mut taffy = rt.taffy.borrow_mut();
+                Runtime::with_taffy_mut(|taffy| {
                     taffy
                         .compute_layout_with_measure(
                             layout_id,
                             Size {
-                                width: AvailableSpace::Definite(screen_width()),
-                                height: AvailableSpace::Definite(screen_height()),
+                                width: AvailableSpace::Definite(macroquad::window::screen_width()),
+                                height: AvailableSpace::Definite(macroquad::window::screen_height()),
                             },
                             |known_dimensions, available_space, _node_id, node_context, _style| {
                                 node_context.map_or(Size::ZERO, |f| {
@@ -44,7 +43,7 @@ impl App {
                         .unwrap();
                 });
             }
-            self.root_node.render();
+            self.root_node.render(vec2(0., 0.));
         });
 
         crate::shader::consume_delete_queue();

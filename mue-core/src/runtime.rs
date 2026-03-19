@@ -104,20 +104,19 @@ impl Runtime {
 
     pub fn on_update(&self, signal_id: SignalId) {
         let mut subscribers = mem::take(&mut self.signal_mut(signal_id).subscribers);
-        if self.batch_depth.get() > 0 {
-            for effect_id in &subscribers {
-                self.mark_stale(*effect_id, EffectState::Dirty);
-            }
-        } else {
-            for effect_id in &subscribers {
-                self.update(*effect_id);
-            }
+        for effect_id in &subscribers {
+            self.mark_stale(*effect_id, EffectState::Dirty);
         }
         let mut signal = self.signal_mut(signal_id);
         if signal.subscribers.len() < subscribers.len() {
             mem::swap(&mut signal.subscribers, &mut subscribers);
         }
         signal.subscribers.extend(subscribers);
+        drop(signal);
+
+        if self.batch_depth.get() == 0 {
+            self.flush_updates();
+        }
     }
 
     pub fn update(&self, effect_id: EffectId) {
@@ -171,30 +170,44 @@ impl Runtime {
         }
     }
 
-    pub fn update_if_necessary(&self, signal_id: SignalId) {
-        let Some(effect_id) = self.signal_mut(signal_id).effect else {
+    pub fn update_effect_if_necessary(&self, effect_id: EffectId) {
+        if effect_id.is_null() {
             return;
-        };
+        }
+
         let mut effect = self.effect_mut(effect_id);
+
         if effect.state == EffectState::Check {
             let dependencies = mem::take(&mut effect.dependencies);
             drop(effect);
-            for dependency in &*dependencies {
-                self.update_if_necessary(*dependency);
+
+            for dependency_signal_id in &*dependencies {
+                if let Some(parent_effect_id) = self.signal_mut(*dependency_signal_id).effect {
+                    self.update_effect_if_necessary(parent_effect_id);
+                }
+
                 if self.effect_mut(effect_id).state == EffectState::Dirty {
                     break;
                 }
             }
-            self.effect_mut(effect_id).dependencies = dependencies;
+
             effect = self.effect_mut(effect_id);
+            effect.dependencies = dependencies;
         }
+
         if effect.state == EffectState::Dirty {
             drop(effect);
             self.update(effect_id);
-            effect = self.effect_mut(effect_id);
+        } else {
+            effect.state = EffectState::Clean;
         }
+    }
 
-        effect.state = EffectState::Clean;
+    pub fn update_signal_if_necessary(&self, signal_id: SignalId) {
+        let effect_id = self.signal_mut(signal_id).effect;
+        if let Some(effect_id) = effect_id {
+            self.update_effect_if_necessary(effect_id);
+        }
     }
 
     fn mark_stale(&self, effect_id: EffectId, state: EffectState) {
@@ -220,18 +233,28 @@ impl Runtime {
         self.signal_mut(signal).subscribers = subscribers;
     }
 
+    fn flush_updates(&self) {
+        loop {
+            let pending = mem::take(&mut *self.pending_updates.borrow_mut());
+            if pending.is_empty() {
+                break;
+            }
+            for effect_id in pending {
+                self.update_effect_if_necessary(effect_id);
+            }
+        }
+    }
+
     pub fn batch(&self, f: impl FnOnce()) {
         let depth = self.batch_depth.get();
         self.batch_depth.set(depth + 1);
         f();
-        self.batch_depth.set(depth);
 
         if depth == 0 {
-            let pending_updates = mem::take(&mut *self.pending_updates.borrow_mut());
-            for effect_id in pending_updates {
-                self.update(effect_id);
-            }
+            self.flush_updates();
         }
+
+        self.batch_depth.set(depth);
     }
 
     /// Dispose a signal, removing it and cleaning up all dependencies.

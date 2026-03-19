@@ -40,7 +40,7 @@ struct Transform(Prop<Matrix>);
 struct Opacity(Prop<f32>);
 
 pub struct Paint {
-    transform: Prop<Matrix>,
+    pub transform: Prop<Matrix>,
     opacity: Prop<f32>,
     tolerance: Prop<f32>,
 }
@@ -138,6 +138,18 @@ impl Shapes {
             shape.draw();
         }
     }
+
+    fn shape_for_texture(&mut self, texture: Option<SharedTexture>) -> &mut Shape {
+        if self.shapes.last().is_some_and(|it| it.texture == texture) {
+            self.shapes.last_mut().unwrap()
+        } else {
+            self.shapes.push(Shape {
+                texture,
+                ..Default::default()
+            });
+            self.shapes.last_mut().unwrap()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -195,18 +207,7 @@ impl<'a> Inner<'a> {
         ) -> TessellationResult,
     ) {
         let texture = shader.texture();
-        if !shapes
-            .shapes
-            .last()
-            .as_ref()
-            .is_some_and(|it| it.texture == texture)
-        {
-            shapes.shapes.push(Shape {
-                texture,
-                ..Default::default()
-            });
-        }
-        let shape = shapes.shapes.last_mut().unwrap();
+        let shape = shapes.shape_for_texture(texture);
 
         let constructor = ShaderConstructor {
             transform: self.transform,
@@ -250,6 +251,31 @@ impl<'a> ShapesBuilder<'a> {
 }
 
 impl ShapesBuilder<'_> {
+    pub fn draw_texture(
+        &mut self,
+        draw_rect: Rect,
+        texture: SharedTexture,
+        uv_rect: Rect,
+        color: Color,
+    ) {
+        let shape = self.shapes.shape_for_texture(Some(texture));
+        let dmin = draw_rect.min();
+        let umin = uv_rect.min();
+        let dmax = draw_rect.max();
+        let umax = uv_rect.max();
+        let offset = shape.buffers.vertices.len() as u16;
+        shape.buffers.vertices.extend([
+            Vertex::new(dmin.x, dmin.y, 0., umin.x, umin.y, color),
+            Vertex::new(dmax.x, dmin.y, 0., umax.x, umin.y, color),
+            Vertex::new(dmax.x, dmax.y, 0., umax.x, umax.y, color),
+            Vertex::new(dmin.x, dmax.y, 0., umin.x, umax.y, color),
+        ]);
+        shape
+            .buffers
+            .indices
+            .extend([0, 1, 2, 0, 2, 3].map(|i| i + offset));
+    }
+
     /// Fill a path with the given shader.
     pub fn fill_path<I, S>(&mut self, path: I, shader: S)
     where

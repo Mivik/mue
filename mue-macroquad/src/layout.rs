@@ -33,17 +33,16 @@ pub struct Layout {
 
 impl Layout {
     pub fn set_measure_fn(&self, measure_fn: impl MeasureFn + 'static) {
-        Runtime::with(|rt| {
-            rt.taffy
-                .borrow_mut()
+        Runtime::with_taffy_mut(|taffy| {
+            taffy
                 .set_node_context(self.layout_id, Some(Box::new(measure_fn)))
                 .unwrap();
         });
     }
 
     pub fn mark_dirty(&self) {
-        Runtime::with(|rt| {
-            rt.taffy.borrow_mut().mark_dirty(self.layout_id).unwrap();
+        Runtime::with_taffy_mut(|taffy| {
+            taffy.mark_dirty(self.layout_id).unwrap();
         });
     }
 }
@@ -68,13 +67,10 @@ pub fn use_layout(style: &mut Style) -> Layout {
         }
 
         let layout_id =
-            Runtime::with(|rt| rt.taffy.borrow_mut().new_leaf(Default::default()).unwrap());
+            Runtime::with_taffy_mut(|taffy| taffy.new_leaf(Default::default()).unwrap());
         watch_effect(move || {
-            Runtime::with(|rt| {
-                rt.taffy
-                    .borrow_mut()
-                    .set_style(layout_id, style.get_clone())
-                    .unwrap();
+            Runtime::with_taffy_mut(|taffy| {
+                taffy.set_style(layout_id, style.get_clone()).unwrap();
             });
         });
 

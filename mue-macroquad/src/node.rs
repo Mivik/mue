@@ -2,18 +2,25 @@ mod children;
 mod container;
 mod geom;
 pub mod image;
+pub mod text;
 
 pub use children::{join_children, map_keyed, show_if, Children, IntoChildren};
 pub use container::{div, flexbox, FlexboxBuilder};
 pub use geom::circle;
 pub use image::image;
+pub use text::text;
 
 use std::{cell::RefCell, ops::Deref};
 
 use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
 use slotmap::new_key_type;
 
-use crate::{hook::Hooks, layout::OwnedLayout, math::Rect, runtime::Runtime};
+use crate::{
+    hook::Hooks,
+    layout::OwnedLayout,
+    math::{Rect, Vector},
+    runtime::Runtime,
+};
 
 new_key_type! {
     pub(crate) struct NodeId;
@@ -64,22 +71,24 @@ pub struct NodeRef {
 }
 
 impl NodeRef {
-    pub(crate) fn render(&self) {
+    pub(crate) fn render(&self, mut origin: Vector) {
         Runtime::with(|rt| {
             let node = rt.node(self.id);
-            node.hooks.render.invoke(&());
             if let Some(layout_id) = node.layout_id {
                 let taffy = rt.taffy.borrow();
                 let layout = taffy.layout(layout_id).unwrap();
                 let loc = layout.location;
                 let size = layout.size;
+                origin.x += loc.x;
+                origin.y += loc.y;
                 node.layout
                     .rect
-                    .set(Rect::new(loc.x, loc.y, size.width, size.height));
+                    .set(Rect::new(origin.x, origin.y, size.width, size.height));
             }
+            node.hooks.render.invoke(&());
             if !node.children.is_null() {
                 for child in node.children.get_clone().iter() {
-                    child.render();
+                    child.render(origin);
                 }
             }
         });

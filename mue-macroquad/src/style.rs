@@ -1,5 +1,6 @@
 mod ext;
 
+use cosmic_text::Align;
 pub use ext::StyleableExt;
 
 use mue_core::{
@@ -141,6 +142,9 @@ define_style! {
     // Paint
     transform: Matrix = Matrix::IDENTITY;
     opacity: f32 = 1.0;
+
+    // Text
+    text_align: Option<Align>;
 }
 
 impl Style {
