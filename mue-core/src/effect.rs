@@ -282,6 +282,43 @@ pub fn computed_always<T: 'static>(mut f: impl FnMut(Option<&T>) -> T + 'static)
     }))
 }
 
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct Reaction {
+    pub(crate) effect_id: EffectId,
+}
+
+impl Reaction {
+    fn new(effect_id: EffectId) -> Self {
+        Self { effect_id }
+    }
+
+    pub fn track<R>(&self, f: impl FnOnce() -> R) -> R {
+        Runtime::with(|rt| rt.update_with(self.effect_id, f))
+    }
+}
+
+#[track_caller]
+pub fn create_reaction(mut f: impl FnMut() + 'static) -> Reaction {
+    #[cfg(debug_assertions)]
+    let location = std::panic::Location::caller();
+    Runtime::with(|rt| {
+        let effect_id = EffectInner::new(
+            Box::new(move |_value| {
+                f();
+                false
+            }),
+            rt.null_signal,
+            Dependencies::default(),
+            EffectState::Dirty,
+            #[cfg(debug_assertions)]
+            location,
+        )
+        .register(rt);
+        Reaction::new(effect_id)
+    })
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -659,5 +696,35 @@ mod test {
 
         count.set(3);
         assert_eq!(*cleanup_values.borrow(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_reaction() {
+        let count = signal(0);
+        let reaction_runs = Rc::new(RefCell::new(0));
+        let reaction_runs_clone = reaction_runs.clone();
+
+        let reaction = create_reaction(move || {
+            *reaction_runs_clone.borrow_mut() += 1;
+        });
+
+        reaction.track(|| {
+            count.get();
+        });
+
+        assert_eq!(*reaction_runs.borrow(), 0);
+
+        count.set(1);
+        assert_eq!(*reaction_runs.borrow(), 1);
+
+        // Tracking the same reaction again should not cause it to run
+        count.set(2);
+        assert_eq!(*reaction_runs.borrow(), 1);
+
+        reaction.track(|| {
+            count.get();
+        });
+        count.set(3);
+        assert_eq!(*reaction_runs.borrow(), 2);
     }
 }

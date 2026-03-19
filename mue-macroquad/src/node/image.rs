@@ -1,9 +1,5 @@
 use macroquad::prelude::*;
-use mue_core::{
-    effect::{computed, watch},
-    prelude::Access,
-    prop::PropValue,
-};
+use mue_core::{prelude::Access, prop::PropValue};
 use taffy::{AvailableSpace, Size};
 
 use crate::{
@@ -43,9 +39,12 @@ pub fn image(
     layout.set_measure_fn({
         let texture = texture.clone();
         move |known_dimensions: Size<Option<f32>>, _available_space: Size<AvailableSpace>| {
-            let texture = texture.get_clone_untracked();
-            let w = texture.width();
-            let h = texture.height();
+            let texture = texture.get_clone();
+            let region = region
+                .get_clone()
+                .unwrap_or_else(|| Rect::new(0., 0., texture.width(), texture.height()));
+
+            let Rect { w, h, .. } = region;
             let aspect_ratio = w / h;
             match (known_dimensions.width, known_dimensions.height) {
                 (Some(width), Some(height)) => Size { width, height },
@@ -64,16 +63,6 @@ pub fn image(
             }
         }
     });
-    // TODO: simplify watch source
-    watch(
-        computed({
-            let texture = texture.clone();
-            move |_| (texture.get_clone(), region.get_clone())
-        }),
-        move |_| {
-            layout.mark_dirty();
-        },
-    );
 
     let shapes = paint.build(move |p| {
         let texture = texture.get_clone();

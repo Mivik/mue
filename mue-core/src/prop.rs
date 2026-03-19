@@ -6,7 +6,25 @@ use std::{
     sync::Arc,
 };
 
-use crate::signal::{Access, ReadSignal};
+use crate::{
+    runtime::Runtime,
+    signal::{Access, ReadSignal, SignalId},
+};
+
+#[derive(Clone, Copy)]
+pub struct PropTracker(Option<SignalId>);
+
+impl Access for PropTracker {
+    type Value = ();
+
+    fn track(&self) {
+        if let Some(signal_id) = &self.0 {
+            Runtime::with(|rt| rt.track(*signal_id));
+        }
+    }
+
+    fn get_clone_untracked(&self) {}
+}
 
 #[derive(Clone, Copy)]
 pub enum Prop<T> {
@@ -57,6 +75,13 @@ impl<T: 'static> Prop<T> {
             Self::Static(value) => Prop::Static(f(value.clone())),
             Self::Dynamic(signal) => Prop::Dynamic(signal.map(f)),
         }
+    }
+
+    pub fn to_tracker(&self) -> PropTracker {
+        PropTracker(match self {
+            Self::Static(_) => None,
+            Self::Dynamic(signal) => Some(signal.id),
+        })
     }
 }
 

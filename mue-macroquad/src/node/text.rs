@@ -11,7 +11,7 @@ use macroquad::{
     texture::{Image, Texture2D},
 };
 use mue_core::{
-    effect::{computed, watch, watch_effect},
+    effect::{computed, watch_effect},
     signal::Access,
 };
 use taffy::{AvailableSpace, Size};
@@ -94,7 +94,7 @@ fn alloc_or_evict(
         }
     }
     // TODO: handle this better
-    println!("Current cache size: {}", cache.len());
+    eprintln!("Current cache size: {}", cache.len());
     panic!(
         "Failed to allocate space of {}x{} in the atlas after {} attempts, maybe the atlas is too small?",
         size.width,
@@ -139,7 +139,6 @@ impl Atlas {
     const MAX_ALLOC_ATTEMPTS: usize = 32;
     const ALLOC_GAP: i32 = 1;
 
-    // TODO: `SwashCache` here is not necessary, since we always use `get_image_uncached`
     pub fn cache_glyph(
         &mut self,
         font_system: &mut FontSystem,
@@ -176,7 +175,6 @@ impl Atlas {
                 .collect(),
             cosmic_text::SwashContent::Color => image.data,
             cosmic_text::SwashContent::SubpixelMask => {
-                // TODO: implement
                 todo!()
             }
         };
@@ -274,13 +272,12 @@ pub fn text(
 
             let mut buffer = buffer.borrow_mut();
             Runtime::with_fonts_mut(|fonts| {
-                let mut buffer = buffer.borrow_with(&mut fonts.font_system);
                 buffer.set_metrics_and_size(
+                    &mut fonts.font_system,
                     metrics.get_untracked(),
                     width_constraint,
                     height_constraint,
                 );
-                buffer.shape_until_scroll(true);
             });
 
             let total_height = buffer
@@ -299,16 +296,6 @@ pub fn text(
             }
         }
     });
-    // TODO: simplify watch source
-    watch(
-        computed({
-            let text = text.clone();
-            move |_| (line_height.get(), font_size.get(), text.get_clone())
-        }),
-        move |_| {
-            layout.mark_dirty();
-        },
-    );
 
     watch_effect({
         let buffer = buffer.clone();
@@ -325,7 +312,7 @@ pub fn text(
                     align.get(),
                 );
                 buffer.set_metrics_and_size(metrics.get(), Some(rect.w), Some(rect.h));
-                buffer.shape_until_scroll(true);
+                layout.mark_dirty();
             });
         }
     });

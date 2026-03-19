@@ -120,15 +120,22 @@ impl Runtime {
     }
 
     pub fn update(&self, effect_id: EffectId) {
+        self.update_inner(effect_id, Option::<fn()>::None);
+    }
+    pub fn update_with<R>(&self, effect_id: EffectId, track_fn: impl FnOnce() -> R) -> R {
+        self.update_inner(effect_id, Some(track_fn)).unwrap()
+    }
+
+    fn update_inner<R>(
+        &self,
+        effect_id: EffectId,
+        track_fn: Option<impl FnOnce() -> R>,
+    ) -> Option<R> {
         if effect_id.is_null() {
-            return;
+            return None;
         }
 
         let mut effect = self.effect_mut(effect_id);
-        if effect.callback.is_none() {
-            // TODO: this solution is hacky. See test_nested_watch_immediate
-            return;
-        }
         effect.cleanup();
 
         let tracker = match &mut effect.dependencies {
@@ -140,18 +147,31 @@ impl Runtime {
         let prev_effect = self.current_effect.replace(Some(effect_id));
 
         let signal_id = effect.signal;
-        let mut value = self.signal_mut(signal_id).value.take();
-        let mut callback = effect.callback.take().unwrap();
-        drop(effect);
 
-        let updated = callback(&mut value);
-        self.signal_mut(signal_id).value = value;
+        let mut result = None;
+        let mut effect_callback = None;
+        let updated = if let Some(track_fn) = track_fn {
+            drop(effect);
+            result = Some(track_fn());
+            false
+        } else {
+            let mut value = self.signal_mut(signal_id).value.take();
+            let mut callback = effect.callback.take().unwrap();
+            drop(effect);
+
+            let updated = callback(&mut value);
+            self.signal_mut(signal_id).value = value;
+            effect_callback = Some(callback);
+            updated
+        };
 
         self.current_effect.replace(prev_effect);
 
         let mut effect = self.effect_mut(effect_id);
         effect.state = EffectState::Clean;
-        effect.callback = Some(callback);
+        if effect_callback.is_some() {
+            effect.callback = effect_callback;
+        }
         if let Some(mut tracker) = self.tracker.replace(prev_tracker) {
             for signal_id in tracker.dependencies.drain(tracker.index..) {
                 self.signal_mut(signal_id).subscribers.remove(&effect_id);
@@ -168,6 +188,8 @@ impl Runtime {
         if updated {
             self.on_update(signal_id);
         }
+
+        result
     }
 
     pub fn update_effect_if_necessary(&self, effect_id: EffectId) {

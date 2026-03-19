@@ -25,17 +25,31 @@ where
 }
 
 #[non_exhaustive]
-#[derive(Clone, Copy)]
 pub struct Layout {
     pub layout_id: taffy::NodeId,
     pub rect: ReadSignal<Rect>,
 }
 
 impl Layout {
-    pub fn set_measure_fn(&self, measure_fn: impl MeasureFn + 'static) {
-        Runtime::with_taffy_mut(|taffy| {
+    pub fn set_measure_fn(&self, mut measure_fn: impl MeasureFn + 'static) {
+        let reaction = create_reaction({
+            let layout_id = self.layout_id;
+            move || {
+                Runtime::with_taffy_mut(|taffy| {
+                    taffy
+                        .mark_dirty(layout_id)
+                        .expect("failed to mark layout dirty");
+                });
+            }
+        });
+        Runtime::with_taffy_mut(move |taffy| {
             taffy
-                .set_node_context(self.layout_id, Some(Box::new(measure_fn)))
+                .set_node_context(
+                    self.layout_id,
+                    Some(Box::new(move |known_dimensions, available_space| {
+                        reaction.track(|| measure_fn.measure(known_dimensions, available_space))
+                    })),
+                )
                 .unwrap();
         });
     }
