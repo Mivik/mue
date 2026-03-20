@@ -23,6 +23,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         }
     };
     let option = quote! { ::std::option::Option };
+    let signal = quote! { ::mue_core::signal::Signal };
     let prop = quote! { ::mue_core::prop::Prop };
     let into = quote! { ::std::convert::Into };
 
@@ -33,9 +34,9 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
 
     enum Arg {
         Style(Type),
-        Prop {
+        Arg {
             ident: syn::Ident,
-            ty: Type,
+            ty: proc_macro2::TokenStream,
             default: Option<proc_macro2::TokenStream>,
         },
     }
@@ -54,15 +55,18 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
                 if ident == "style" {
                     return Arg::Style((*pat_type.ty).clone());
                 }
+
                 let inner_ty = (*pat_type.ty).clone();
-                let ty: Type = syn::parse_quote! { #prop<#inner_ty> };
-                *pat_type.ty = ty.clone();
 
                 let mut default = None;
+                let mut is_model = false;
                 pat_type.attrs.retain_mut(|attr| {
                     if let Meta::Path(path) = &attr.meta {
                         if path.is_ident("default") {
                             default = Some(quote! { Default::default() });
+                            return false;
+                        } else if path.is_ident("model") {
+                            is_model = true;
                             return false;
                         }
                     }
@@ -74,10 +78,21 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
                     }
                     true
                 });
-                Arg::Prop {
-                    ident: ident.clone(),
-                    ty: inner_ty,
-                    default,
+
+                if is_model {
+                    *pat_type.ty = syn::parse_quote! { #signal<#inner_ty> };
+                    Arg::Arg {
+                        ident: ident.clone(),
+                        ty: quote! { #signal<#inner_ty> },
+                        default: default.map(|d| quote! { ::mue_core::signal::signal(#d) }),
+                    }
+                } else {
+                    *pat_type.ty = syn::parse_quote! { #prop<#inner_ty> };
+                    Arg::Arg {
+                        ident: ident.clone(),
+                        ty: quote! { #prop<#inner_ty> },
+                        default: default.map(|d| quote! { #prop::Static(#d) }),
+                    }
                 }
             }
         })
@@ -89,11 +104,11 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
                 Arg::Style(ty) => {
                     quote! { style: #ty }
                 }
-                Arg::Prop { ident, ty, default } => {
+                Arg::Arg { ident, ty, default } => {
                     if default.is_some() {
-                        quote! { #ident: #option<#prop<#ty>> }
+                        quote! { #ident: #option<#ty> }
                     } else {
-                        quote! { #ident: #prop<#ty> }
+                        quote! { #ident: #ty }
                     }
                 }
             })
@@ -103,13 +118,13 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let setters = args
         .iter()
         .filter_map(|arg| match arg {
-            Arg::Prop { ident, ty, default } => {
+            Arg::Arg { ident, ty, default } => {
                 let mut value = quote! { #into::into(value) };
                 if default.is_some() {
                     value = quote! { Some(#value) };
                 }
                 Some(quote! {
-                    pub fn #ident(mut self, value: impl #into<#prop<#ty>>) -> Self {
+                    pub fn #ident(mut self, value: impl #into<#ty>) -> Self {
                         self.#ident = #value;
                         self
                     }
@@ -129,9 +144,9 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let new_args: Vec<_> = args
         .iter()
         .filter_map(|arg| match arg {
-            Arg::Prop { ident, ty, default } => {
+            Arg::Arg { ident, ty, default } => {
                 if default.is_none() {
-                    Some(quote! { #ident: impl #into<#prop<#ty>> })
+                    Some(quote! { #ident: impl #into<#ty> })
                 } else {
                     None
                 }
@@ -140,7 +155,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         })
         .collect();
     let new_arg_names = args.iter().filter_map(|arg| match arg {
-        Arg::Prop { ident, default, .. } => {
+        Arg::Arg { ident, default, .. } => {
             if default.is_none() {
                 Some(quote! { #ident })
             } else {
@@ -153,7 +168,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         .iter()
         .map(|arg| match arg {
             Arg::Style(_) => quote! { style: #macroquad::style::Style::default() },
-            Arg::Prop { ident, default, .. } => {
+            Arg::Arg { ident, default, .. } => {
                 if default.is_none() {
                     quote! { #ident: #into::into(#ident) }
                 } else {
@@ -165,10 +180,8 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
 
     let invoke_args = args.iter().map(|arg| match arg {
         Arg::Style(_) => quote! { self.style },
-        Arg::Prop { ident, default, .. } => {
-            let default = default
-                .as_ref()
-                .map(|d| quote! { .unwrap_or_else(|| #prop::Static(#d)) });
+        Arg::Arg { ident, default, .. } => {
+            let default = default.as_ref().map(|d| quote! { .unwrap_or_else(|| #d) });
             quote! { self.#ident #default }
         }
     });
