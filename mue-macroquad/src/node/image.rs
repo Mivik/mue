@@ -7,7 +7,7 @@ use crate::{
     layout::use_layout,
     math::{vec2, Rect, Vector},
     paint::use_paint,
-    shader::{SharedTexture, TextureShader},
+    shader::SharedTexture,
     style::Style,
 };
 
@@ -25,16 +25,16 @@ impl PropValue for ObjectFit {}
 
 #[mue_macros::node]
 pub fn image(
-    mut style: Style,
+    style: &mut Style,
     texture: SharedTexture,
     #[default] object_fit: ObjectFit,
     #[default(vec2(0.5, 0.5))] object_position: Vector,
     #[default] region: Option<Rect>,
     #[default(WHITE)] color: Color,
 ) {
-    let layout = use_layout(&mut style);
+    let layout = use_layout(style);
     let rect = layout.rect;
-    let paint = use_paint(&mut style);
+    let paint = use_paint(style);
 
     layout.set_measure_fn({
         let texture = texture.clone();
@@ -85,8 +85,7 @@ pub fn image(
             uv_region,
         );
 
-        let shader = TextureShader::new(texture, adjusted_uv, draw_rect, color.get());
-        p.fill_rect(draw_rect, shader);
+        p.draw_texture(draw_rect, texture, adjusted_uv, color.get());
     });
 
     on_render(move |_| {

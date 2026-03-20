@@ -3,6 +3,7 @@ use mue_core::batch;
 use taffy::{AvailableSpace, Size};
 
 use crate::{
+    event::pointer::PointerManager,
     node::{IntoNode, Node},
     runtime::Runtime,
 };
@@ -10,6 +11,8 @@ use crate::{
 pub struct App {
     root_node: Node,
     layout_id: Option<taffy::NodeId>,
+
+    motion_manager: PointerManager,
 }
 
 impl App {
@@ -20,10 +23,13 @@ impl App {
         Self {
             root_node,
             layout_id,
+
+            motion_manager: PointerManager::new(),
         }
     }
 
-    pub fn frame(&self) {
+    pub fn frame(&mut self) {
+        let root_node = *self.root_node;
         batch(|| {
             if let Some(layout_id) = self.layout_id {
                 Runtime::with_taffy_mut(|taffy| {
@@ -44,6 +50,7 @@ impl App {
                 });
             }
             self.root_node.render(vec2(0., 0.));
+            self.motion_manager.process(root_node);
         });
 
         crate::shader::consume_delete_queue();

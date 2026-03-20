@@ -1,3 +1,4 @@
+use mue_core::signal::Signal;
 use paste::paste;
 use taffy::{AlignContent, AlignItems, Dimension, FlexDirection, Position};
 
@@ -95,6 +96,12 @@ pub trait StyleableExt: Styleable {
 
     impl_align_items!(items, align_items);
     impl_align_items!(justify_items, justify_items);
+
+    fn use_pressed(self, pressed: Signal<bool>) -> Self {
+        self.on_tap_down(move |_| pressed.set(true))
+            .on_tap_up(move |_| pressed.set(false))
+            .on_tap_cancel(move |_| pressed.set(false))
+    }
 }
 
 impl<T: Styleable> StyleableExt for T {}

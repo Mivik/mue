@@ -27,11 +27,11 @@ fn main() {
 fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
     let sprites =
         map_keyed(
-            Prop::Dynamic(computed(move |_| {
+            computed(move |_| {
                 let time = time.get();
                 let count = ((time * 2.) as usize + 1).min(10);
                 (0..count).collect()
-            })),
+            }),
             |&value| value,
             move |&i| {
                 image(texture.clone())
@@ -53,7 +53,7 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
 
     flexbox()
         .children((
-            text("hello"),
+            text("hello 🐦"),
             row,
             circle()
                 .h_auto()
@@ -77,7 +77,7 @@ async fn the_main() {
     let texture: SharedTexture = load_texture("ferris.png").await.unwrap().into();
 
     let root = view(texture, *time);
-    let app = App::new(root);
+    let mut app = App::new(root);
 
     loop {
         clear_background(BLACK);

@@ -225,15 +225,15 @@ impl Atlas {
 
 #[mue_macros::node]
 pub fn text(
-    mut style: Style,
+    style: &mut Style,
     #[default(32.0)] font_size: f32,
     #[default(44.0)] line_height: f32,
     text: Rc<str>,
 ) {
-    let layout = use_layout(&mut style);
+    let layout = use_layout(style);
     let rect = layout.rect;
 
-    let paint = use_paint(&mut style);
+    let paint = use_paint(style);
 
     let metrics = computed(move |_| Metrics::new(font_size.get(), line_height.get()));
 

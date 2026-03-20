@@ -7,11 +7,17 @@ use mue_core::{
     effect::computed,
     prop::Prop,
     signal::{Access, ReadSignal},
+    Owned,
 };
 use paste::paste;
+use std::mem;
 use taffy::{BoxSizing, Dimension, Display, Position, Size};
 
-use crate::math::Matrix;
+use crate::{
+    hook::HookFn,
+    math::Matrix,
+    node::{Children, IntoChildren},
+};
 
 pub struct SizeProp<S> {
     width: Prop<S>,
@@ -68,10 +74,15 @@ macro_rules! define_style {
 
     (
         $($name:ident : $ty:ty $( = $default:expr)?;)*
+        @hooks {
+            $($hook_name:ident : HookFn<$hook_ty:ty>;)*
+        }
     ) => {
-        #[derive(Clone, Copy, Default)]
+        #[derive(Default)]
         pub struct Style {
-            $(pub(crate) $name: Option<Prop<$ty>>),*
+            $(pub(crate) $name: Option<Prop<$ty>>,)*
+            $(pub(crate) $hook_name: HookFn<$hook_ty>,)*
+            pub(crate) children: Option<Owned<Children>>,
         }
 
         pub trait Styleable: Sized {
@@ -83,6 +94,18 @@ macro_rules! define_style {
                     self
                 }
             )*
+
+            $(
+                fn $hook_name(mut self, hook: impl Fn(&$hook_ty) + 'static) -> Self {
+                    self.style_mut().$hook_name.append(hook);
+                    self
+                }
+            )*
+
+            fn children(mut self, children: impl IntoChildren) -> Self {
+                self.style_mut().children = Some(children.into_children());
+                self
+            }
         }
 
         impl Styleable for Style {
@@ -96,17 +119,47 @@ macro_rules! define_style {
                 $(
                     self.$name = self.$name.or(other.$name);
                 )*
+                $(
+                    self.$hook_name.extend(other.$hook_name);
+                )*
+                self.children = self.children.or(other.children);
                 self
             }
 
-            $(
-                paste! {
+            pub fn provide_defaults(&mut self, mut default: Self) {
+                $(
+                    if self.$name.is_none() {
+                        self.$name = default.$name;
+                    }
+                )*
+                $(
+                    mem::swap(&mut self.$hook_name, &mut default.$hook_name);
+                    self.$hook_name.extend(default.$hook_name);
+                )*
+                if self.children.is_none() {
+                    self.children = default.children;
+                }
+            }
+
+            paste! {
+                $(
                     #[allow(dead_code)]
                     pub(crate) fn [<take_ $name>](&mut self) -> Prop<$ty> {
                         self.$name.take().unwrap_or_else(|| define_style!(@extract_default ($ty, $($default)?)))
                     }
-                }
-            )*
+                )*
+
+                $(
+                    #[allow(dead_code)]
+                    pub(crate) fn [<take_ $hook_name>](&mut self) -> Option<HookFn<$hook_ty>> {
+                        if self.$hook_name.is_empty() {
+                            None
+                        } else {
+                            Some(mem::take(&mut self.$hook_name))
+                        }
+                    }
+                )*
+            }
         }
     };
 }
@@ -145,6 +198,13 @@ define_style! {
 
     // Text
     text_align: Option<Align>;
+
+    @hooks {
+        on_click: HookFn<()>;
+        on_tap_down: HookFn<()>;
+        on_tap_up: HookFn<()>;
+        on_tap_cancel: HookFn<()>;
+    }
 }
 
 impl Style {

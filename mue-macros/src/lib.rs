@@ -2,7 +2,7 @@ use heck::ToUpperCamelCase;
 use proc_macro::TokenStream;
 use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
-use syn::{parse_macro_input, FnArg, ItemFn, Meta, Pat, Type};
+use syn::{parse_macro_input, parse_quote, FnArg, ItemFn, Meta, Pat, Type};
 
 #[proc_macro_attribute]
 pub fn node(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -53,7 +53,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
                 };
                 let ident = &pat.ident;
                 if ident == "style" {
-                    return Arg::Style((*pat_type.ty).clone());
+                    return Arg::Style(parse_quote!(#macroquad::style::Style));
                 }
 
                 let inner_ty = (*pat_type.ty).clone();
@@ -98,48 +98,33 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         })
         .collect();
 
-    let fields =
-        args.iter()
-            .map(|arg| match arg {
-                Arg::Style(ty) => {
-                    quote! { style: #ty }
-                }
-                Arg::Arg { ident, ty, default } => {
-                    if default.is_some() {
-                        quote! { #ident: #option<#ty> }
-                    } else {
-                        quote! { #ident: #ty }
-                    }
-                }
-            })
-            .chain(node.then(
-                || quote! { children: #option<::mue_core::Owned<#macroquad::node::Children>> },
-            ));
-    let setters = args
-        .iter()
-        .filter_map(|arg| match arg {
-            Arg::Arg { ident, ty, default } => {
-                let mut value = quote! { #into::into(value) };
-                if default.is_some() {
-                    value = quote! { Some(#value) };
-                }
-                Some(quote! {
-                    pub fn #ident(mut self, value: impl #into<#ty>) -> Self {
-                        self.#ident = #value;
-                        self
-                    }
-                })
+    let fields = args.iter().map(|arg| match arg {
+        Arg::Style(ty) => {
+            quote! { style: #ty }
+        }
+        Arg::Arg { ident, ty, default } => {
+            if default.is_some() {
+                quote! { #ident: #option<#ty> }
+            } else {
+                quote! { #ident: #ty }
             }
-            _ => None,
-        })
-        .chain(node.then(|| {
-            quote! {
-                pub fn children(mut self, children: impl #macroquad::node::IntoChildren) -> Self {
-                    self.children = Some(#macroquad::node::IntoChildren::into_children(children));
+        }
+    });
+    let setters = args.iter().filter_map(|arg| match arg {
+        Arg::Arg { ident, ty, default } => {
+            let mut value = quote! { #into::into(value) };
+            if default.is_some() {
+                value = quote! { Some(#value) };
+            }
+            Some(quote! {
+                pub fn #ident(mut self, value: impl #into<#ty>) -> Self {
+                    self.#ident = #value;
                     self
                 }
-            }
-        }));
+            })
+        }
+        _ => None,
+    });
 
     let new_args: Vec<_> = args
         .iter()
@@ -164,22 +149,25 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         }
         _ => None,
     });
-    let prop_struct_init = args
-        .iter()
-        .map(|arg| match arg {
-            Arg::Style(_) => quote! { style: #macroquad::style::Style::default() },
-            Arg::Arg { ident, default, .. } => {
-                if default.is_none() {
-                    quote! { #ident: #into::into(#ident) }
-                } else {
-                    quote! { #ident: None }
-                }
+    let prop_struct_init = args.iter().map(|arg| match arg {
+        Arg::Style(_) => quote! { style: #macroquad::style::Style::default() },
+        Arg::Arg { ident, default, .. } => {
+            if default.is_none() {
+                quote! { #ident: #into::into(#ident) }
+            } else {
+                quote! { #ident: None }
             }
-        })
-        .chain(node.then(|| quote! { children: None }));
+        }
+    });
 
     let invoke_args = args.iter().map(|arg| match arg {
-        Arg::Style(_) => quote! { self.style },
+        Arg::Style(_) => {
+            if node {
+                quote! { style }
+            } else {
+                quote! { &mut self.style }
+            }
+        }
         Arg::Arg { ident, default, .. } => {
             let default = default.as_ref().map(|d| quote! { .unwrap_or_else(|| #d) });
             quote! { self.#ident #default }
@@ -195,19 +183,27 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     );
 
     let into_node = if node {
-        quote! {
-            let children = self
-                .children
-                .unwrap_or_else(|| #macroquad::node::IntoChildren::into_children(()));
-            #macroquad::node::Node::build_with_children(children, move || {
-                #ident(#( #invoke_args ),*)
-            })
+        if args.iter().any(|arg| matches!(arg, Arg::Style(_))) {
+            quote! {
+                #macroquad::node::Node::build_with_style(self.style, move |style| {
+                    #ident(#( #invoke_args ),*)
+                })
+            }
+        } else {
+            quote! {
+                #macroquad::node::Node::build(move || #ident(#( #invoke_args ),*))
+            }
         }
     } else {
         quote! {
             let result = #ident(#( #invoke_args ),*);
             #macroquad::node::IntoNode::into_node(result)
         }
+    };
+    let into_node_self = if node {
+        quote! { self }
+    } else {
+        quote! { mut self }
     };
 
     let mut style_derive = quote! {};
@@ -237,7 +233,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         }
 
         impl #impl_generics #macroquad::node::IntoNode for #builder_name #ty_generics #where_clause {
-            fn into_node(self) -> #macroquad::node::Node {
+            fn into_node(#into_node_self) -> #macroquad::node::Node {
                 #input
                 #into_node
             }

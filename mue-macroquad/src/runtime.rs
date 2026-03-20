@@ -7,6 +7,7 @@ use slotmap::SlotMap;
 use taffy::TaffyTree;
 
 use crate::{
+    gesture::{Gesture, GestureId},
     layout::MeasureFn,
     node::{text::FontState, NodeId, NodeInner},
 };
@@ -20,6 +21,8 @@ pub(crate) struct Runtime {
     pub nodes: RefCell<SlotMap<NodeId, NodeInner>>,
 
     pub fonts: RefCell<FontState>,
+
+    pub gestures: RefCell<SlotMap<GestureId, Box<dyn Gesture>>>,
 }
 
 impl Runtime {
@@ -29,6 +32,8 @@ impl Runtime {
             nodes: RefCell::new(SlotMap::with_key()),
 
             fonts: RefCell::new(FontState::default()),
+
+            gestures: RefCell::new(SlotMap::with_key()),
         }
     }
 

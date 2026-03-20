@@ -11,9 +11,9 @@ use crate::{
 };
 
 #[mue_macros::node]
-pub fn circle(mut style: Style) {
-    let Layout { rect, .. } = use_layout(&mut style);
-    let paint = use_paint(&mut style);
+pub fn circle(style: &mut Style) {
+    let Layout { rect, .. } = use_layout(style);
+    let paint = use_paint(style);
     let shapes = paint.build(move |p| {
         let r = rect.get();
         p.fill_circle(r.center(), r.w.min(r.h) / 2., WHITE);

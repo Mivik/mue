@@ -1,4 +1,6 @@
 mod app;
+pub mod event;
+pub mod gesture;
 pub mod hook;
 pub mod layout;
 pub mod math;

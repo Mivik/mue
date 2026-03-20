@@ -10,16 +10,19 @@ pub use geom::circle;
 pub use image::image;
 pub use text::text;
 
-use std::{cell::RefCell, ops::Deref};
+use std::{cell::RefCell, mem, ops::Deref};
 
 use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
-use slotmap::new_key_type;
+use slotmap::{new_key_type, Key};
 
 use crate::{
+    event::pointer::HitTestFn,
+    gesture::{GestureId, TapGesture},
     hook::Hooks,
     layout::OwnedLayout,
     math::{Rect, Vector},
     runtime::Runtime,
+    style::Style,
 };
 
 new_key_type! {
@@ -37,6 +40,8 @@ pub(crate) struct NodeInner {
 
     pub(crate) layout_id: Option<taffy::NodeId>,
     pub(crate) layout: OwnedLayout,
+    pub(crate) hit_test: Option<HitTestFn>,
+    pub(crate) gestures: Vec<GestureId>,
 
     pub(crate) children: Owned<Children>,
 }
@@ -46,8 +51,11 @@ impl NodeInner {
         Self {
             scope: Scope::new(),
             hooks: Hooks::default(),
+
             layout_id: None,
             layout: OwnedLayout::default(),
+            hit_test: None,
+            gestures: Vec::new(),
 
             children,
         }
@@ -71,6 +79,10 @@ pub struct NodeRef {
 }
 
 impl NodeRef {
+    pub(crate) fn null() -> Self {
+        Self { id: NodeId::null() }
+    }
+
     pub(crate) fn render(&self, mut origin: Vector) {
         Runtime::with(|rt| {
             let node = rt.node(self.id);
@@ -111,6 +123,9 @@ impl Disposable for NodeRef {
                 }
                 node.children.dispose();
             }
+            for gesture_id in node.gestures {
+                rt.gestures.borrow_mut().remove(gesture_id);
+            }
         });
     }
 }
@@ -120,15 +135,16 @@ pub struct Node(Owned<NodeRef>);
 
 impl Node {
     pub fn build(f: impl FnOnce()) -> Self {
-        Self::build_with_children(Children::null().owned(), f)
+        Self::build_with_style(Style::default(), |_style| f())
     }
 
-    pub fn build_with_children(children: Owned<Children>, f: impl FnOnce()) -> Self {
-        let node = NodeInner::new(children);
+    pub fn build_with_style(mut style: Style, f: impl FnOnce(&mut Style)) -> Self {
+        let node = NodeInner::new(style.children.take().unwrap_or_else(|| ().into_children()));
         let scope = node.scope;
         CONTEXT.with_borrow_mut(|stack| stack.push(Box::new(node)));
-        scope.run(f);
-        let node = CONTEXT.with_borrow_mut(|stack| stack.pop().unwrap());
+        scope.run(|| f(&mut style));
+        let mut node = CONTEXT.with_borrow_mut(|stack| stack.pop().unwrap());
+        append_hooks(node.as_mut(), &mut style);
         Self(
             NodeRef {
                 id: node.register(),
@@ -136,6 +152,25 @@ impl Node {
             .owned(),
         )
     }
+}
+
+fn append_hooks(node: &mut NodeInner, style: &mut Style) {
+    Runtime::with(|rt| {
+        let mut gestures = rt.gestures.borrow_mut();
+        let mut insert = |gesture| node.gestures.push(gestures.insert(gesture));
+        if !style.on_click.is_empty()
+            || !style.on_tap_down.is_empty()
+            || !style.on_tap_up.is_empty()
+            || !style.on_tap_cancel.is_empty()
+        {
+            insert(Box::new(TapGesture::new(
+                mem::take(&mut style.on_click),
+                mem::take(&mut style.on_tap_down),
+                mem::take(&mut style.on_tap_up),
+                mem::take(&mut style.on_tap_cancel),
+            )));
+        }
+    })
 }
 
 impl Deref for Node {
