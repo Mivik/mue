@@ -74,7 +74,7 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
 async fn the_main() {
     let time = signal(0.);
     set_pc_assets_folder("assets");
-    let texture: SharedTexture = load_texture("test.png").await.unwrap().into();
+    let texture: SharedTexture = load_texture("ferris.png").await.unwrap().into();
 
     let root = view(texture, *time);
     let app = App::new(root);
