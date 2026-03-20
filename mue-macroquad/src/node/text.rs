@@ -29,13 +29,8 @@ pub struct FontState {
 
 impl Default for FontState {
     fn default() -> Self {
-        let mut font_system = FontSystem::new();
-        font_system
-            .db_mut()
-            .load_font_file("/usr/share/fonts/adobe-source-han-sans/SourceHanSansCN-Regular.otf")
-            .unwrap();
         Self {
-            font_system,
+            font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             font_atlas: Atlas::new(4096),
         }
