@@ -32,6 +32,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
     let vis = &input.vis;
     let ident = &input.sig.ident;
 
+    #[derive(Clone)]
     enum Arg {
         Style(Type),
         Arg {
@@ -98,7 +99,12 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         })
         .collect();
 
-    let fields = args.iter().map(|arg| match arg {
+    let mut fields = args.clone();
+    if !fields.iter().any(|arg| matches!(arg, Arg::Style(_))) {
+        fields.push(Arg::Style(parse_quote!(#macroquad::style::Style)));
+    }
+
+    let fields_decl = fields.iter().map(|arg| match arg {
         Arg::Style(ty) => {
             quote! { style: #ty }
         }
@@ -110,7 +116,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
             }
         }
     });
-    let setters = args.iter().filter_map(|arg| match arg {
+    let setters = fields.iter().filter_map(|arg| match arg {
         Arg::Arg { ident, ty, default } => {
             let mut value = quote! { #into::into(value) };
             if default.is_some() {
@@ -149,7 +155,7 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         }
         _ => None,
     });
-    let prop_struct_init = args.iter().map(|arg| match arg {
+    let prop_struct_init = fields.iter().map(|arg| match arg {
         Arg::Style(_) => quote! { style: #macroquad::style::Style::default() },
         Arg::Arg { ident, default, .. } => {
             if default.is_none() {
@@ -196,7 +202,8 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         }
     } else {
         quote! {
-            let result = #ident(#( #invoke_args ),*);
+            let mut result = #ident(#( #invoke_args ),*);
+            result.style_mut().provide_defaults(self.style);
             #macroquad::node::IntoNode::into_node(result)
         }
     };
@@ -206,20 +213,17 @@ fn make_fn(input: TokenStream, node: bool) -> TokenStream {
         quote! { mut self }
     };
 
-    let mut style_derive = quote! {};
-    if args.iter().any(|arg| matches!(arg, Arg::Style(_))) {
-        style_derive = quote! {
-            impl #impl_generics #macroquad::style::Styleable for #builder_name #ty_generics #where_clause {
-                fn style_mut(&mut self) -> &mut #macroquad::style::Style {
-                    &mut self.style
-                }
+    let style_derive = quote! {
+        impl #impl_generics #macroquad::style::Styleable for #builder_name #ty_generics #where_clause {
+            fn style_mut(&mut self) -> &mut #macroquad::style::Style {
+                &mut self.style
             }
-        };
-    }
+        }
+    };
 
     quote! {
         pub struct #builder_name #ty_generics #where_clause {
-            #( #fields ),*
+            #( #fields_decl ),*
         }
 
         impl #impl_generics #builder_name #ty_generics #where_clause {

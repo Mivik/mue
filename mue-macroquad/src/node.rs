@@ -22,7 +22,7 @@ use crate::{
     layout::OwnedLayout,
     math::{Rect, Vector},
     runtime::Runtime,
-    style::Style,
+    style::{Style, Styleable, StyleableExt},
 };
 
 new_key_type! {
@@ -197,3 +197,6 @@ impl IntoNode for Node {
         self
     }
 }
+
+pub trait Component: IntoNode + Styleable + StyleableExt {}
+impl<T: IntoNode + Styleable + StyleableExt> Component for T {}

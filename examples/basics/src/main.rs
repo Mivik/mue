@@ -24,7 +24,7 @@ fn main() {
 }
 
 #[mue_macros::component]
-fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
+fn view(texture: SharedTexture, time: f32) -> impl Component {
     let sprites =
         map_keyed(
             computed(move |_| {
@@ -53,7 +53,7 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
 
     flexbox()
         .children((
-            text("hello 🐦"),
+            text("hello 🐦🚀"),
             row,
             circle()
                 .h_auto()
@@ -68,7 +68,6 @@ fn view(texture: SharedTexture, time: f32) -> impl IntoNode {
                 .show_if(time.map(|t| t >= 0.2)),
         ))
         .flex_column()
-        .size_full()
 }
 
 async fn the_main() {
@@ -76,7 +75,7 @@ async fn the_main() {
     set_pc_assets_folder("assets");
     let texture: SharedTexture = load_texture("ferris.png").await.unwrap().into();
 
-    let root = view(texture, *time);
+    let root = view(texture, *time).size_full();
     let mut app = App::new(root);
 
     loop {

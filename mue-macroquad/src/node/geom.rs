@@ -24,7 +24,8 @@ pub fn circle(style: &mut Style) {
 }
 
 #[mue_macros::node]
-pub fn shape(shapes: Rc<Shapes>) {
+pub fn shape(style: &mut Style, shapes: Rc<Shapes>) {
+    use_layout(style);
     on_render(move |_| {
         shapes.get_clone().draw();
     });

@@ -19,7 +19,7 @@ fn main() {
 }
 
 #[mue_macros::component]
-fn view() -> impl IntoNode {
+fn view() -> impl Component {
     let pressed = signal(false);
     let count = signal(0);
 
