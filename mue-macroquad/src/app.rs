@@ -1,11 +1,14 @@
+use std::{mem, rc::Rc, sync::atomic::Ordering};
+
 use glam::vec2;
 use mue_core::batch;
+use ordered_float::NotNan;
 use taffy::{AvailableSpace, Size};
 
 use crate::{
     event::pointer::PointerManager,
     node::{IntoNode, Node},
-    runtime::Runtime,
+    runtime::{Runtime, TimeoutKey},
 };
 
 pub struct App {
@@ -31,6 +34,23 @@ impl App {
     pub fn frame(&mut self) {
         let root_node = *self.root_node;
         batch(|| {
+            let time = macroquad::time::get_time();
+            Runtime::with(|rt| {
+                let key = TimeoutKey {
+                    time: NotNan::new((time as f32).next_up()).unwrap(),
+                    aborted: Rc::default(),
+                };
+                let mut timeouts = rt.timeouts.borrow_mut();
+                #[allow(clippy::mutable_key_type)]
+                let mut due_timeouts = timeouts.split_off(&key);
+                mem::swap(&mut *timeouts, &mut due_timeouts);
+                for (key, callback) in due_timeouts {
+                    if key.aborted.load(Ordering::Relaxed) {
+                        continue;
+                    }
+                    callback();
+                }
+            });
             if let Some(layout_id) = self.layout_id {
                 Runtime::with_taffy_mut(|taffy| {
                     taffy

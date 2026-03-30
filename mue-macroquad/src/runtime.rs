@@ -1,8 +1,12 @@
 use std::{
     cell::{Ref, RefCell},
+    collections::BTreeMap,
+    rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
     thread::AccessError,
 };
 
+use ordered_float::NotNan;
 use slotmap::SlotMap;
 use taffy::TaffyTree;
 
@@ -16,6 +20,42 @@ thread_local! {
     static RUNTIME: Runtime = Runtime::new();
 }
 
+pub(crate) struct TimeoutKey {
+    pub time: NotNan<f32>,
+    pub aborted: Rc<AtomicBool>,
+}
+
+impl PartialEq for TimeoutKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time && Rc::ptr_eq(&self.aborted, &other.aborted)
+    }
+}
+impl Eq for TimeoutKey {}
+
+impl PartialOrd for TimeoutKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for TimeoutKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.time
+            .cmp(&other.time)
+            .then_with(|| Rc::as_ptr(&self.aborted).cmp(&Rc::as_ptr(&other.aborted)))
+    }
+}
+
+#[repr(transparent)]
+pub struct TimeoutHandle {
+    aborted: Rc<AtomicBool>,
+}
+
+impl TimeoutHandle {
+    pub fn cancel(&self) {
+        self.aborted.store(true, Ordering::Relaxed);
+    }
+}
+
 pub(crate) struct Runtime {
     pub taffy: RefCell<TaffyTree<Box<dyn MeasureFn>>>,
     pub nodes: RefCell<SlotMap<NodeId, NodeInner>>,
@@ -23,6 +63,8 @@ pub(crate) struct Runtime {
     pub fonts: RefCell<FontState>,
 
     pub gestures: RefCell<SlotMap<GestureId, Box<dyn Gesture>>>,
+
+    pub timeouts: RefCell<BTreeMap<TimeoutKey, Box<dyn FnOnce()>>>,
 }
 
 impl Runtime {
@@ -34,6 +76,8 @@ impl Runtime {
             fonts: RefCell::new(FontState::default()),
 
             gestures: RefCell::new(SlotMap::with_key()),
+
+            timeouts: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -54,4 +98,18 @@ impl Runtime {
     pub fn node(&self, id: NodeId) -> Ref<'_, NodeInner> {
         Ref::map(self.nodes.borrow(), |arena| &arena[id])
     }
+}
+
+pub fn set_timeout(delay: f32, callback: impl FnOnce() + 'static) -> TimeoutHandle {
+    Runtime::with(|rt| {
+        let key = TimeoutKey {
+            time: NotNan::new(macroquad::time::get_time() as f32 + delay).unwrap(),
+            aborted: Rc::default(),
+        };
+        let handle = TimeoutHandle {
+            aborted: key.aborted.clone(),
+        };
+        rt.timeouts.borrow_mut().insert(key, Box::new(callback));
+        handle
+    })
 }

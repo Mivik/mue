@@ -11,3 +11,4 @@ pub mod shader;
 pub mod style;
 
 pub use app::App;
+pub use runtime::set_timeout;
