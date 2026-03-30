@@ -5,26 +5,33 @@ use crate::{
 };
 
 pub struct TapGesture {
+    threshold: f32,
+
     active: Option<ClaimToken>,
-    on_click: HookFn<()>,
-    on_tap_down: HookFn<()>,
-    on_tap_up: HookFn<()>,
-    on_tap_cancel: HookFn<()>,
+
+    pub(crate) on_click: HookFn<()>,
+    pub(crate) on_tap_down: HookFn<()>,
+    pub(crate) on_tap_up: HookFn<()>,
+    pub(crate) on_tap_cancel: HookFn<()>,
+}
+
+impl Default for TapGesture {
+    fn default() -> Self {
+        Self::new(10.0)
+    }
 }
 
 impl TapGesture {
-    pub(crate) fn new(
-        on_click: HookFn<()>,
-        on_tap_down: HookFn<()>,
-        on_tap_up: HookFn<()>,
-        on_tap_cancel: HookFn<()>,
-    ) -> Self {
+    pub fn new(threshold: f32) -> Self {
         Self {
+            threshold,
+
             active: None,
-            on_click,
-            on_tap_down,
-            on_tap_up,
-            on_tap_cancel,
+
+            on_click: HookFn::default(),
+            on_tap_down: HookFn::default(),
+            on_tap_up: HookFn::default(),
+            on_tap_cancel: HookFn::default(),
         }
     }
 }
@@ -39,7 +46,7 @@ impl Gesture for TapGesture {
             return match event.action() {
                 PointerAction::Down => GestureUpdate::Reject,
                 PointerAction::Move => {
-                    if (event.start_position() - event.position()).length() > 10.0 {
+                    if (event.start_position() - event.position()).length() > self.threshold {
                         self.active = None;
                         self.on_tap_cancel.invoke(&());
                         GestureUpdate::Reject

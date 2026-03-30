@@ -163,12 +163,12 @@ fn append_hooks(node: &mut NodeInner, style: &mut Style) {
             || !style.on_tap_up.is_empty()
             || !style.on_tap_cancel.is_empty()
         {
-            insert(Box::new(TapGesture::new(
-                mem::take(&mut style.on_click),
-                mem::take(&mut style.on_tap_down),
-                mem::take(&mut style.on_tap_up),
-                mem::take(&mut style.on_tap_cancel),
-            )));
+            let mut gesture = Box::new(TapGesture::default());
+            gesture.on_click = mem::take(&mut style.on_click);
+            gesture.on_tap_down = mem::take(&mut style.on_tap_down);
+            gesture.on_tap_up = mem::take(&mut style.on_tap_up);
+            gesture.on_tap_cancel = mem::take(&mut style.on_tap_cancel);
+            insert(gesture);
         }
     })
 }
