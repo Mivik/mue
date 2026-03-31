@@ -4,7 +4,6 @@ use macroquad::color::WHITE;
 use mue_core::signal::Access;
 
 use crate::{
-    hook::on_render,
     layout::{use_layout, Layout},
     paint::{use_paint, Shapes},
     style::Style,
@@ -18,7 +17,7 @@ pub fn circle(style: &mut Style) {
         let r = rect.get();
         p.fill_circle(r.center(), r.w.min(r.h) / 2., WHITE);
     });
-    on_render(move |_| {
+    style.on_render.append(move |_| {
         shapes.get_clone().draw();
     });
 }
@@ -26,7 +25,7 @@ pub fn circle(style: &mut Style) {
 #[mue_macros::node]
 pub fn shape(style: &mut Style, shapes: Rc<Shapes>) {
     use_layout(style);
-    on_render(move |_| {
+    style.on_render.append(move |_| {
         shapes.get_clone().draw();
     });
 }

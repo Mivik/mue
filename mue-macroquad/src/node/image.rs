@@ -3,7 +3,6 @@ use mue_core::{prelude::Access, prop::PropValue};
 use taffy::{AvailableSpace, Size};
 
 use crate::{
-    hook::on_render,
     layout::use_layout,
     math::{vec2, Rect, Vector},
     paint::use_paint,
@@ -88,7 +87,7 @@ pub fn image(
         p.draw_texture(draw_rect, texture, adjusted_uv, color.get());
     });
 
-    on_render(move |_| {
+    style.on_render.append(move |_| {
         shapes.get_clone().draw();
     });
 }

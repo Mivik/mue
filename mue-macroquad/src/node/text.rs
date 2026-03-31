@@ -17,8 +17,8 @@ use mue_core::{
 use taffy::{AvailableSpace, Size};
 
 use crate::{
-    hook::on_render, layout::use_layout, math::Rect, paint::use_paint, runtime::Runtime,
-    shader::SharedTexture, style::Style,
+    layout::use_layout, math::Rect, paint::use_paint, runtime::Runtime, shader::SharedTexture,
+    style::Style,
 };
 
 pub struct FontState {
@@ -312,7 +312,7 @@ pub fn text(
         }
     });
 
-    on_render(move |_| {
+    style.on_render.append(move |_| {
         let buffer = buffer.borrow();
         Runtime::with_fonts_mut(|fonts| {
             paint.draw(|p| {

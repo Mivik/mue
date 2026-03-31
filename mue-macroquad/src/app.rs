@@ -8,6 +8,7 @@ use taffy::{AvailableSpace, Size};
 use crate::{
     event::pointer::PointerManager,
     node::{IntoNode, Node},
+    runtime::get_time,
     runtime::{Runtime, TimeoutKey},
 };
 
@@ -15,7 +16,7 @@ pub struct App {
     root_node: Node,
     layout_id: Option<taffy::NodeId>,
 
-    motion_manager: PointerManager,
+    pointer_manager: PointerManager,
 }
 
 impl App {
@@ -27,23 +28,26 @@ impl App {
             root_node,
             layout_id,
 
-            motion_manager: PointerManager::new(),
+            pointer_manager: PointerManager::new(),
         }
     }
 
     pub fn frame(&mut self) {
         let root_node = *self.root_node;
         batch(|| {
-            let time = macroquad::time::get_time();
+            let time = get_time();
             Runtime::with(|rt| {
                 let key = TimeoutKey {
-                    time: NotNan::new((time as f32).next_up()).unwrap(),
+                    time: NotNan::new(time.next_up()).unwrap(),
                     aborted: Rc::default(),
                 };
-                let mut timeouts = rt.timeouts.borrow_mut();
                 #[allow(clippy::mutable_key_type)]
-                let mut due_timeouts = timeouts.split_off(&key);
-                mem::swap(&mut *timeouts, &mut due_timeouts);
+                let  due_timeouts = {
+                    let mut timeouts = rt.timeouts.borrow_mut();
+                    let mut due = timeouts.split_off(&key);
+                    mem::swap(&mut *timeouts, &mut due);
+                    due
+                };
                 for (key, callback) in due_timeouts {
                     if key.aborted.load(Ordering::Relaxed) {
                         continue;
@@ -70,7 +74,7 @@ impl App {
                 });
             }
             self.root_node.render(vec2(0., 0.));
-            self.motion_manager.process(root_node);
+            self.pointer_manager.process(root_node);
         });
 
         crate::shader::consume_delete_queue();

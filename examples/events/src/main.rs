@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 use mue_core::prelude::*;
 use mue_macroquad::{
     node::*,
+    runtime::set_timeout,
     style::{Styleable, StyleableExt},
     App,
 };
@@ -22,12 +23,32 @@ fn main() {
 fn view() -> impl Component {
     let pressed = signal(false);
     let count = signal(0);
+    let long_pressed = signal(false);
+    let mut long_pressed_handle = None;
 
     text(computed(move |_| {
-        format!("Clicked {} times\nPressed: {}", count.get(), pressed.get()).into()
+        format!(
+            "Clicked {} times\nPressed: {}{}",
+            count.get(),
+            pressed.get(),
+            if long_pressed.get() {
+                "\nLong pressed"
+            } else {
+                ""
+            }
+        )
+        .into()
     }))
     .use_pressed(pressed)
-    .on_click(move |_| count.update(|c| *c += 1))
+    .on_tap(move |_| count.update(|c| *c += 1))
+    .on_long_press(move |_| {
+        long_pressed.set(true);
+        if let Some(old) = long_pressed_handle.replace(set_timeout(1., move || {
+            long_pressed.set(false);
+        })) {
+            old.cancel();
+        }
+    })
 }
 
 async fn the_main() {

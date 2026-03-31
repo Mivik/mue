@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
     fmt,
     rc::Rc,
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use glam::vec2;
+use indexmap::IndexSet;
 use macroquad::input::utils::{register_input_subscriber, repeat_all_miniquad_input};
 use miniquad::{EventHandler, MouseButton};
 use mue_core::signal::Access;
@@ -13,13 +14,13 @@ use mue_core::signal::Access;
 use slotmap::Key;
 
 use crate::{
-    gesture::{GestureId, GestureUpdate},
+    gesture::GestureId,
     math::Vector,
     node::{NodeInner, NodeRef},
-    runtime::Runtime,
+    runtime::{get_time, Runtime},
 };
 
-pub(crate) type HitTestFn = Rc<dyn Fn(NodeRef, Vector, &mut Vec<GestureId>)>;
+pub(crate) type HitTestFn = Rc<dyn Fn(NodeRef, Vector, &mut IndexSet<NodeRef>)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerAction {
@@ -49,10 +50,10 @@ impl PointerId {
         Self(
             u64::MAX
                 - match button {
-                    MouseButton::Left => 0,
-                    MouseButton::Middle => 1,
-                    MouseButton::Right => 2,
-                    MouseButton::Unknown => 3,
+                    MouseButton::Left => 1,
+                    MouseButton::Middle => 2,
+                    MouseButton::Right => 3,
+                    MouseButton::Unknown => 4,
                 },
         )
     }
@@ -67,16 +68,11 @@ pub struct PointerEvent {
     start_position: Vector,
     position: Vector,
     delta: Vector,
-
-    claim_token: ClaimToken,
+    time: f32,
 }
 
 impl PointerEvent {
     pub fn new(pointer_id: PointerId, pointer_type: PointerType, start_pos: Vector) -> Self {
-        let claim_token = ClaimToken {
-            pointer_id,
-            token: Rc::new(AtomicBool::new(false)),
-        };
         Self {
             pointer_id,
             pointer_type,
@@ -85,8 +81,7 @@ impl PointerEvent {
             start_position: start_pos,
             position: start_pos,
             delta: vec2(0., 0.),
-
-            claim_token,
+            time: get_time(),
         }
     }
 
@@ -94,10 +89,7 @@ impl PointerEvent {
         self.delta = current_pos - self.position;
         self.position = current_pos;
         self.action = action;
-    }
-
-    pub fn claim_token(&self) -> &ClaimToken {
-        &self.claim_token
+        self.time = get_time();
     }
 
     pub fn pointer_id(&self) -> PointerId {
@@ -123,15 +115,17 @@ impl PointerEvent {
     pub fn delta(&self) -> Vector {
         self.delta
     }
-}
 
-#[derive(Debug)]
-pub struct ClaimedPointer(PointerId);
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+}
 
 #[derive(Clone)]
 pub struct ClaimToken {
     pointer_id: PointerId,
-    token: Rc<AtomicBool>,
+    gesture_id: GestureId,
+    state: Rc<PointerGestureState>,
 }
 
 impl fmt::Debug for ClaimToken {
@@ -148,58 +142,121 @@ impl ClaimToken {
     }
 
     pub fn can_claim(&self) -> bool {
-        !self.token.load(Ordering::Relaxed)
+        self.state.claimed_by.borrow().is_null()
+            && self.state.gestures.borrow().contains(&self.gesture_id)
+            && !self.state.dismissed.borrow().contains(&self.gesture_id)
     }
 
-    pub fn claim(&self) -> Option<ClaimedPointer> {
-        if self
-            .token
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
-            Some(ClaimedPointer(self.pointer_id))
+    #[must_use]
+    pub fn claim(&self) -> bool {
+        if self.can_claim() {
+            *self.state.claimed_by.borrow_mut() = self.gesture_id;
+            true
         } else {
-            None
+            false
         }
     }
+
+    #[must_use]
+    pub fn claim_all(tokens: &[&ClaimToken]) -> bool {
+        if !tokens.iter().all(|token| token.can_claim()) {
+            false
+        } else {
+            for token in tokens {
+                let _ = token.claim();
+            }
+            true
+        }
+    }
+
+    pub fn dismiss(&self) {
+        self.state.dismissed.borrow_mut().insert(self.gesture_id);
+    }
+}
+
+struct PointerGestureState {
+    gestures: RefCell<IndexSet<GestureId>>,
+    dismissed: RefCell<HashSet<GestureId>>,
+    claimed_by: RefCell<GestureId>,
 }
 
 struct PointerTrack {
-    gestures: Vec<GestureId>,
+    nodes: IndexSet<NodeRef>,
+    state: Rc<PointerGestureState>,
     event: PointerEvent,
+    claim_token: ClaimToken,
 }
 
 impl PointerTrack {
-    fn new(gestures: Vec<GestureId>, event: PointerEvent) -> Self {
-        Self { gestures, event }
+    fn new(nodes: IndexSet<NodeRef>, event: PointerEvent) -> Self {
+        let mut gestures = IndexSet::new();
+        Runtime::with(|rt| {
+            for node in nodes.iter() {
+                gestures.extend(rt.node(node.id).gestures.iter().copied());
+            }
+        });
+        let state = Rc::new(PointerGestureState {
+            gestures: RefCell::new(gestures),
+            dismissed: RefCell::default(),
+            claimed_by: RefCell::new(GestureId::null()),
+        });
+        let claim_token = ClaimToken {
+            pointer_id: event.pointer_id(),
+            gesture_id: GestureId::null(),
+            state: Rc::clone(&state),
+        };
+        Self {
+            nodes,
+            state,
+            event,
+            claim_token,
+        }
     }
 
-    fn dispatch(&mut self, claims: &mut Vec<(ClaimedPointer, GestureId)>) {
-        Runtime::with(|rt| {
-            let mut gesture_map = rt.gestures.borrow_mut();
-            self.gestures.retain(|gesture_id| {
-                let gesture = &mut gesture_map[*gesture_id];
-                let update = gesture.on_event(&self.event);
-                match update {
-                    GestureUpdate::Pending => true,
-                    GestureUpdate::Accept(pointers) => {
-                        claims.extend(pointers.into_iter().map(|p| (p, *gesture_id)));
+    fn flush_updates(&mut self) {
+        let claimed_by = *self.state.claimed_by.borrow();
+        if !claimed_by.is_null() && self.state.gestures.borrow().len() > 1 {
+            Runtime::with(|rt| {
+                let mut gesture_map = rt.gestures.borrow_mut();
+                self.state.gestures.borrow_mut().retain(|&id| {
+                    if id == claimed_by {
+                        true
+                    } else {
+                        gesture_map[id].on_rejected(self.event.pointer_id());
                         false
                     }
-                    GestureUpdate::Reject => false,
-                }
-            });
+                });
+            })
+        }
+
+        let mut dismissed = self.state.dismissed.borrow_mut();
+        if !dismissed.is_empty() {
+            self.state
+                .gestures
+                .borrow_mut()
+                .retain(|id| !dismissed.contains(id));
+            dismissed.clear();
+        }
+    }
+
+    fn dispatch(&mut self) {
+        Runtime::with(|rt| {
+            for &node in self.nodes.iter() {
+                rt.invoke_hook(node.id, |hooks| &mut hooks.pointer_event, &self.event);
+            }
+
+            let mut gesture_map = rt.gestures.borrow_mut();
+            for gesture_id in self.state.gestures.borrow().iter() {
+                let gesture = &mut gesture_map[*gesture_id];
+                self.claim_token.gesture_id = *gesture_id;
+                gesture.on_event(&self.event, &self.claim_token);
+            }
         });
     }
 
-    pub fn update(
-        &mut self,
-        action: PointerAction,
-        pos: Vector,
-        claims: &mut Vec<(ClaimedPointer, GestureId)>,
-    ) {
+    pub fn update(&mut self, action: PointerAction, pos: Vector) {
         self.event.update(action, pos);
-        self.dispatch(claims);
+        self.dispatch();
     }
 }
 
@@ -207,7 +264,6 @@ pub struct PointerManager {
     root_node: NodeRef,
     subscriber_id: usize,
     tracks: HashMap<PointerId, PointerTrack>,
-    claims: Vec<(ClaimedPointer, GestureId)>,
     mouse_pos: Vector,
 }
 
@@ -223,90 +279,63 @@ impl PointerManager {
             root_node: NodeRef::null(),
             subscriber_id: register_input_subscriber(),
             tracks: HashMap::new(),
-            claims: Vec::new(),
             mouse_pos: Vector::ZERO,
         }
     }
 
     pub fn process(&mut self, root_node: NodeRef) {
         self.root_node = root_node;
+        for track in self.tracks.values_mut() {
+            track.flush_updates();
+        }
         repeat_all_miniquad_input(self, self.subscriber_id);
     }
 
-    fn hit_test(&self, pos: Vector) -> Vec<GestureId> {
-        let mut result = Vec::new();
+    fn hit_test(&self, pos: Vector) -> IndexSet<NodeRef> {
+        let mut result = IndexSet::new();
         do_hit_test(self.root_node, pos, &mut result);
         result
     }
 
-    fn flush_claims(&mut self) {
-        Runtime::with(|rt| {
-            let mut gesture_map = rt.gestures.borrow_mut();
-            for (pointer, gesture_id) in self.claims.drain(..) {
-                let Some(track) = self.tracks.get_mut(&pointer.0) else {
-                    continue;
-                };
-                track.gestures.retain(|&id| {
-                    if gesture_id == id {
-                        true
-                    } else {
-                        gesture_map[id].on_rejected(pointer.0);
-                        true
-                    }
-                });
-            }
-        })
-    }
-
     fn on_pointer_start(&mut self, id: PointerId, pointer_type: PointerType, pos: Vector) {
-        let gestures = self.hit_test(pos);
+        let nodes = self.hit_test(pos);
         let event = PointerEvent::new(id, pointer_type, pos);
-        let mut track = PointerTrack::new(gestures, event);
+        let mut track = PointerTrack::new(nodes, event);
 
         use std::collections::hash_map::Entry;
         match self.tracks.entry(id) {
             Entry::Occupied(mut occupied) => {
-                occupied
-                    .get_mut()
-                    .update(PointerAction::Cancel, pos, &mut self.claims);
-                track.dispatch(&mut self.claims);
+                occupied.get_mut().update(PointerAction::Cancel, pos);
+                track.dispatch();
                 occupied.insert(track);
             }
             Entry::Vacant(vacant) => {
-                track.dispatch(&mut self.claims);
+                track.dispatch();
                 vacant.insert(track);
             }
         }
-        self.flush_claims();
     }
 
     fn on_pointer_move(&mut self, id: PointerId, pos: Vector) {
         if let Some(track) = self.tracks.get_mut(&id) {
-            track.update(PointerAction::Move, pos, &mut self.claims);
-            self.flush_claims();
+            track.update(PointerAction::Move, pos);
         }
     }
 
     fn on_pointer_end(&mut self, id: PointerId) {
         if let Some(mut track) = self.tracks.remove(&id) {
-            track.update(PointerAction::Up, track.event.position(), &mut self.claims);
-            self.flush_claims();
+            track.update(PointerAction::Up, track.event.position());
         }
     }
 
     fn on_pointer_cancel(&mut self, id: PointerId) {
         if let Some(mut track) = self.tracks.remove(&id) {
-            track.update(
-                PointerAction::Cancel,
-                track.event.position(),
-                &mut self.claims,
-            );
-            self.flush_claims();
+            track.update(PointerAction::Cancel, track.event.position());
         }
     }
 }
 
-fn do_hit_test(node: NodeRef, pos: Vector, result: &mut Vec<GestureId>) {
+fn do_hit_test(node: NodeRef, pos: Vector, result: &mut IndexSet<NodeRef>) {
     if node.id.is_null() {
         return;
     }
@@ -317,7 +346,7 @@ fn do_hit_test(node: NodeRef, pos: Vector, result: &mut Vec<GestureId>) {
     });
 }
 
-fn default_hit_test(node: NodeRef, pos: Vector, result: &mut Vec<GestureId>) {
+fn default_hit_test(node: NodeRef, pos: Vector, result: &mut IndexSet<NodeRef>) {
     let (layout_rect, children) = Runtime::with(|rt| {
         let n = rt.node(node.id);
         let children = if n.children.is_null() {
@@ -336,9 +365,7 @@ fn default_hit_test(node: NodeRef, pos: Vector, result: &mut Vec<GestureId>) {
         do_hit_test(child, pos, result);
     }
 
-    Runtime::with(|rt| {
-        result.extend(rt.node(node.id).gestures.iter().cloned());
-    });
+    result.insert(node);
 }
 
 impl EventHandler for PointerManager {

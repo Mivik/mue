@@ -1,7 +1,7 @@
-use crate::node::NodeInner;
+use crate::event::pointer::PointerEvent;
 
-pub(crate) struct HookFn<T> {
-    callback: Option<Box<dyn Fn(&T)>>,
+pub struct HookFn<T> {
+    callback: Option<Box<dyn FnMut(&T)>>,
 }
 
 impl<T> Default for HookFn<T> {
@@ -15,8 +15,8 @@ impl<T: 'static> HookFn<T> {
         self.callback.is_none()
     }
 
-    pub fn append(&mut self, callback: impl Fn(&T) + 'static) {
-        if let Some(existing) = self.callback.take() {
+    pub fn append(&mut self, mut callback: impl FnMut(&T) + 'static) {
+        if let Some(mut existing) = self.callback.take() {
             self.callback = Some(Box::new(move |arg| {
                 existing(arg);
                 callback(arg);
@@ -32,18 +32,15 @@ impl<T: 'static> HookFn<T> {
         }
     }
 
-    pub fn invoke(&self, arg: &T) {
-        if let Some(callback) = &self.callback {
+    pub fn invoke(&mut self, arg: &T) {
+        if let Some(callback) = &mut self.callback {
             callback(arg);
         }
     }
 }
 
 #[derive(Default)]
-pub(crate) struct Hooks {
+pub(crate) struct NodeHooks {
     pub render: HookFn<()>,
-}
-
-pub fn on_render(callback: impl Fn(&()) + 'static) {
-    NodeInner::with_mut(|node| node.hooks.render.append(callback));
+    pub pointer_event: HookFn<PointerEvent>,
 }

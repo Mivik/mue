@@ -2,6 +2,8 @@ use mue_core::signal::Signal;
 use paste::paste;
 use taffy::{AlignContent, AlignItems, Dimension, FlexDirection, Position};
 
+use crate::event::pointer::{PointerAction, PointerId};
+
 use super::Styleable;
 
 macro_rules! impl_align_content {
@@ -98,9 +100,27 @@ pub trait StyleableExt: Styleable {
     impl_align_items!(justify_items, justify_items);
 
     fn use_pressed(self, pressed: Signal<bool>) -> Self {
-        self.on_tap_down(move |_| pressed.set(true))
-            .on_tap_up(move |_| pressed.set(false))
-            .on_tap_cancel(move |_| pressed.set(false))
+        let mut active: Option<PointerId> = None;
+        self.on_pointer_event(move |event| {
+            if let Some(active_id) = &active {
+                if *active_id != event.pointer_id() {
+                    return;
+                }
+
+                return match event.action() {
+                    PointerAction::Down | PointerAction::Move => {}
+                    PointerAction::Up | PointerAction::Cancel => {
+                        active = None;
+                        pressed.set(false);
+                    }
+                };
+            }
+
+            if event.action() == PointerAction::Down {
+                active = Some(event.pointer_id());
+                pressed.set(true);
+            }
+        })
     }
 }
 

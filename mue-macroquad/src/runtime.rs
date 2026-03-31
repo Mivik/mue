@@ -1,9 +1,5 @@
 use std::{
-    cell::{Ref, RefCell},
-    collections::BTreeMap,
-    rc::Rc,
-    sync::atomic::{AtomicBool, Ordering},
-    thread::AccessError,
+    cell::{Ref, RefCell}, collections::BTreeMap, mem, rc::Rc, sync::atomic::{AtomicBool, Ordering}, thread::AccessError
 };
 
 use ordered_float::NotNan;
@@ -12,8 +8,9 @@ use taffy::TaffyTree;
 
 use crate::{
     gesture::{Gesture, GestureId},
+    hook::{HookFn, NodeHooks},
     layout::MeasureFn,
-    node::{text::FontState, NodeId, NodeInner},
+    node::{NodeId, NodeInner, text::FontState},
 };
 
 thread_local! {
@@ -95,15 +92,30 @@ impl Runtime {
         RUNTIME.with(|rt| f(&mut rt.fonts.borrow_mut()))
     }
 
+    pub fn invoke_hook<T: 'static>(
+        &self,
+        node_id: NodeId,
+        hook_fn: impl Fn(&mut NodeHooks) -> &mut HookFn<T>,
+        arg: &T,
+    ) {
+        let mut hook = mem::take(hook_fn(&mut self.nodes.borrow_mut()[node_id].hooks));
+        hook.invoke(arg);
+        *hook_fn(&mut self.nodes.borrow_mut()[node_id].hooks) = hook;
+    }
+
     pub fn node(&self, id: NodeId) -> Ref<'_, NodeInner> {
         Ref::map(self.nodes.borrow(), |arena| &arena[id])
     }
 }
 
+pub fn get_time() -> f32 {
+    macroquad::time::get_time() as f32
+}
+
 pub fn set_timeout(delay: f32, callback: impl FnOnce() + 'static) -> TimeoutHandle {
     Runtime::with(|rt| {
         let key = TimeoutKey {
-            time: NotNan::new(macroquad::time::get_time() as f32 + delay).unwrap(),
+            time: NotNan::new(get_time() + delay).unwrap(),
             aborted: Rc::default(),
         };
         let handle = TimeoutHandle {

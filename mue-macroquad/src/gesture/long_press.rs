@@ -1,36 +1,41 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     event::pointer::{ClaimToken, PointerAction, PointerEvent, PointerId},
     gesture::Gesture,
     hook::HookFn,
+    runtime::set_timeout,
 };
 
-pub struct TapGesture {
+pub struct LongPressGesture {
     threshold: f32,
+    duration: f32,
 
     active: Option<PointerId>,
 
-    pub(crate) on_tap: HookFn<()>,
+    pub(crate) on_long_press: Rc<RefCell<HookFn<()>>>,
 }
 
-impl Default for TapGesture {
+impl Default for LongPressGesture {
     fn default() -> Self {
-        Self::new(10.0)
+        Self::new(15.0, 0.5)
     }
 }
 
-impl TapGesture {
-    pub fn new(threshold: f32) -> Self {
+impl LongPressGesture {
+    pub fn new(threshold: f32, duration: f32) -> Self {
         Self {
             threshold,
+            duration,
 
             active: None,
 
-            on_tap: HookFn::default(),
+            on_long_press: Rc::new(RefCell::new(HookFn::default())),
         }
     }
 }
 
-impl Gesture for TapGesture {
+impl Gesture for LongPressGesture {
     fn on_event(&mut self, event: &PointerEvent, claim_token: &ClaimToken) {
         if let Some(active) = &self.active {
             if *active != event.pointer_id() {
@@ -45,15 +50,9 @@ impl Gesture for TapGesture {
                         claim_token.dismiss();
                     }
                 }
-                PointerAction::Cancel => {
+                PointerAction::Up | PointerAction::Cancel => {
                     self.active = None;
                     claim_token.dismiss();
-                }
-                PointerAction::Up => {
-                    if claim_token.claim() {
-                        self.on_tap.invoke(&());
-                    }
-                    self.active = None;
                 }
             };
         }
@@ -61,6 +60,15 @@ impl Gesture for TapGesture {
         // No active pointer, try to claim this one
         if event.action() == PointerAction::Down {
             self.active = Some(event.pointer_id());
+            set_timeout(self.duration, {
+                let claim_token = claim_token.clone();
+                let on_long_press = self.on_long_press.clone();
+                move || {
+                    if claim_token.claim() {
+                        on_long_press.borrow_mut().invoke(&());
+                    }
+                }
+            });
         } else {
             claim_token.dismiss();
         }

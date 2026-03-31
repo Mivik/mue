@@ -10,15 +10,15 @@ pub use geom::circle;
 pub use image::image;
 pub use text::text;
 
-use std::{cell::RefCell, mem, ops::Deref};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
 use slotmap::{new_key_type, Key};
 
 use crate::{
     event::pointer::HitTestFn,
-    gesture::{GestureId, TapGesture},
-    hook::Hooks,
+    gesture::GestureId,
+    hook::NodeHooks,
     layout::OwnedLayout,
     math::{Rect, Vector},
     runtime::Runtime,
@@ -36,7 +36,7 @@ thread_local! {
 
 pub(crate) struct NodeInner {
     pub scope: Scope,
-    pub hooks: Hooks,
+    pub hooks: NodeHooks,
 
     pub(crate) layout_id: Option<taffy::NodeId>,
     pub(crate) layout: OwnedLayout,
@@ -50,7 +50,7 @@ impl NodeInner {
     pub fn new(children: Owned<Children>) -> Self {
         Self {
             scope: Scope::new(),
-            hooks: Hooks::default(),
+            hooks: NodeHooks::default(),
 
             layout_id: None,
             layout: OwnedLayout::default(),
@@ -73,7 +73,7 @@ impl NodeInner {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeRef {
     pub(crate) id: NodeId,
 }
@@ -97,7 +97,11 @@ impl NodeRef {
                     .rect
                     .set(Rect::new(origin.x, origin.y, size.width, size.height));
             }
-            node.hooks.render.invoke(&());
+
+            drop(node);
+            rt.invoke_hook(self.id, |hooks| &mut hooks.render, &());
+
+            let node = rt.node(self.id);
             if !node.children.is_null() {
                 for child in node.children.get_clone().iter() {
                     child.render(origin);
@@ -144,6 +148,7 @@ impl Node {
         CONTEXT.with_borrow_mut(|stack| stack.push(Box::new(node)));
         scope.run(|| f(&mut style));
         let mut node = CONTEXT.with_borrow_mut(|stack| stack.pop().unwrap());
+        node.hooks = style.build_hooks();
         append_hooks(node.as_mut(), &mut style);
         Self(
             NodeRef {
@@ -155,19 +160,21 @@ impl Node {
 }
 
 fn append_hooks(node: &mut NodeInner, style: &mut Style) {
+    use crate::gesture;
+
     Runtime::with(|rt| {
         let mut gestures = rt.gestures.borrow_mut();
         let mut insert = |gesture| node.gestures.push(gestures.insert(gesture));
-        if !style.on_click.is_empty()
-            || !style.on_tap_down.is_empty()
-            || !style.on_tap_up.is_empty()
-            || !style.on_tap_cancel.is_empty()
-        {
-            let mut gesture = Box::new(TapGesture::default());
-            gesture.on_click = mem::take(&mut style.on_click);
-            gesture.on_tap_down = mem::take(&mut style.on_tap_down);
-            gesture.on_tap_up = mem::take(&mut style.on_tap_up);
-            gesture.on_tap_cancel = mem::take(&mut style.on_tap_cancel);
+
+        if !style.on_tap.is_empty() {
+            let mut gesture = Box::new(gesture::TapGesture::default());
+            gesture.on_tap = style.take_on_tap();
+            insert(gesture);
+        }
+
+        if !style.on_long_press.is_empty() {
+            let mut gesture = Box::new(gesture::LongPressGesture::default());
+            gesture.on_long_press = Rc::new(RefCell::new(style.take_on_long_press()));
             insert(gesture);
         }
     })

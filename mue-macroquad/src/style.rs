@@ -14,7 +14,8 @@ use std::mem;
 use taffy::{BoxSizing, Dimension, Display, Position, Size};
 
 use crate::{
-    hook::HookFn,
+    event::pointer::PointerEvent,
+    hook::{HookFn, NodeHooks},
     math::Matrix,
     node::{Children, IntoChildren},
 };
@@ -81,7 +82,7 @@ macro_rules! define_style {
         #[derive(Default)]
         pub struct Style {
             $(pub(crate) $name: Option<Prop<$ty>>,)*
-            $(pub(crate) $hook_name: HookFn<$hook_ty>,)*
+            $(pub $hook_name: HookFn<$hook_ty>,)*
             pub(crate) children: Option<Owned<Children>>,
         }
 
@@ -96,7 +97,7 @@ macro_rules! define_style {
             )*
 
             $(
-                fn $hook_name(mut self, hook: impl Fn(&$hook_ty) + 'static) -> Self {
+                fn $hook_name(mut self, hook: impl FnMut(&$hook_ty) + 'static) -> Self {
                     self.style_mut().$hook_name.append(hook);
                     self
                 }
@@ -151,12 +152,8 @@ macro_rules! define_style {
 
                 $(
                     #[allow(dead_code)]
-                    pub(crate) fn [<take_ $hook_name>](&mut self) -> Option<HookFn<$hook_ty>> {
-                        if self.$hook_name.is_empty() {
-                            None
-                        } else {
-                            Some(mem::take(&mut self.$hook_name))
-                        }
+                    pub(crate) fn [<take_ $hook_name>](&mut self) -> HookFn<$hook_ty> {
+                        mem::take(&mut self.$hook_name)
                     }
                 )*
             }
@@ -200,16 +197,24 @@ define_style! {
     text_align: Option<Align>;
 
     @hooks {
-        on_click: HookFn<()>;
-        on_tap_down: HookFn<()>;
-        on_tap_up: HookFn<()>;
-        on_tap_cancel: HookFn<()>;
+        on_render: HookFn<()>;
+        on_pointer_event: HookFn<PointerEvent>;
+
+        on_tap: HookFn<()>;
+        on_long_press: HookFn<()>;
     }
 }
 
 impl Style {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn build_hooks(&mut self) -> NodeHooks {
+        NodeHooks {
+            render: self.take_on_render(),
+            pointer_event: self.take_on_pointer_event(),
+        }
     }
 
     pub(crate) fn build_taffy(&mut self) -> ReadSignal<taffy::Style> {
