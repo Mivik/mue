@@ -60,6 +60,13 @@ impl<T: 'static> Access for Prop<T> {
 }
 
 impl<T: 'static> Prop<T> {
+    pub fn as_static(&self) -> Option<&T> {
+        match self {
+            Self::Static(value) => Some(value),
+            Self::Dynamic(_) => None,
+        }
+    }
+
     pub fn get_mut(&mut self) -> Option<&mut T> {
         match self {
             Self::Static(value) => Some(value),
@@ -179,6 +186,9 @@ impl_prop_value!(
     taffy::style::RepetitionCount,
     taffy::style::TextAlign,
 );
+
+#[cfg(feature = "impl-taffy")]
+impl<T> PropValue for taffy::Rect<T> {}
 
 #[cfg(feature = "impl-taffy")]
 impl<S, Repetition> PropValue for taffy::GenericGridTemplateComponent<S, Repetition>

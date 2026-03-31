@@ -7,7 +7,7 @@ use mue_macroquad::{
     style::{Styleable, StyleableExt},
     App,
 };
-use taffy::Dimension;
+use taffy::{Dimension, LengthPercentageAuto};
 
 fn main() {
     macroquad::Window::from_config(
@@ -40,6 +40,7 @@ fn view(texture: SharedTexture, time: f32) -> impl Component {
                         Dimension::percent((t * (i + 1) as f32).sin() * 0.5 + 0.5)
                     }))
                     .flex_grow(1.)
+                    .margin((LengthPercentageAuto::length(5.),))
             },
         );
 
