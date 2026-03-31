@@ -56,6 +56,9 @@ fn view() -> impl Component {
             old.cancel();
         }
     })
+    .on_wheel_event(|event| {
+        println!("{event:?}");
+    })
 }
 
 async fn the_main() {

@@ -16,7 +16,7 @@ use mue_core::{prop::Prop, scope::Scope, signal::Access, Disposable, Owned};
 use slotmap::{new_key_type, Key};
 
 use crate::{
-    event::pointer::HitTestFn,
+    event::hit_test::HitTestFn,
     gesture::GestureId,
     hook::NodeHooks,
     layout::OwnedLayout,

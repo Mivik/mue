@@ -10,18 +10,16 @@ use glam::vec2;
 use indexmap::IndexSet;
 use macroquad::input::utils::{register_input_subscriber, repeat_all_miniquad_input};
 use miniquad::{EventHandler, MouseButton};
-use mue_core::signal::Access;
 
 use slotmap::Key;
 
 use crate::{
+    event::hit_test::hit_test,
     gesture::GestureId,
     math::Vector,
-    node::{NodeInner, NodeRef},
+    node::NodeRef,
     runtime::{get_time, Runtime},
 };
-
-pub(crate) type HitTestFn = Rc<dyn Fn(NodeRef, Vector, &mut IndexSet<NodeRef>)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerAction {
@@ -449,44 +447,6 @@ impl PointerManager {
     }
 }
 
-fn hit_test(node: NodeRef, pos: Vector) -> IndexSet<NodeRef> {
-    let mut result = IndexSet::new();
-    do_hit_test(node, pos, &mut result);
-    result
-}
-fn do_hit_test(node: NodeRef, pos: Vector, result: &mut IndexSet<NodeRef>) {
-    if node.id.is_null() {
-        return;
-    }
-    Runtime::with(|rt| {
-        let inner = rt.node(node.id).hit_test.clone();
-        let inner = inner.as_deref().unwrap_or(&default_hit_test);
-        inner(node, pos, result);
-    });
-}
-
-fn default_hit_test(node: NodeRef, pos: Vector, result: &mut IndexSet<NodeRef>) {
-    let (layout_rect, children) = Runtime::with(|rt| {
-        let n = rt.node(node.id);
-        let children = if n.children.is_null() {
-            Default::default()
-        } else {
-            n.children.get_clone_untracked()
-        };
-        (n.layout.rect, children)
-    });
-
-    if !layout_rect.is_null() && !layout_rect.get().contains(&pos) {
-        return;
-    }
-
-    for &child in children.iter().rev() {
-        do_hit_test(child, pos, result);
-    }
-
-    result.insert(node);
-}
-
 impl EventHandler for PointerManager {
     fn update(&mut self, _ctx: &mut miniquad::Context) {}
     fn draw(&mut self, _ctx: &mut miniquad::Context) {}
@@ -542,11 +502,4 @@ impl EventHandler for PointerManager {
             miniquad::TouchPhase::Cancelled => self.on_pointer_cancel(pointer_id),
         }
     }
-}
-
-#[allow(dead_code)]
-pub(crate) fn set_hit_test_fn(hit_test: HitTestFn) {
-    NodeInner::with_mut(|node| {
-        node.hit_test = Some(hit_test);
-    })
 }

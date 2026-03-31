@@ -55,6 +55,7 @@ impl App {
                     callback();
                 }
             });
+
             if let Some(layout_id) = self.layout_id {
                 Runtime::with_taffy_mut(|taffy| {
                     taffy
@@ -75,6 +76,7 @@ impl App {
             }
             self.root_node.render(vec2(0., 0.));
             self.pointer_manager.process(root_node);
+            crate::event::wheel::check_wheel(root_node);
         });
 
         crate::shader::consume_delete_queue();

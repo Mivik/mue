@@ -1,4 +1,4 @@
-use crate::event::pointer::PointerEvent;
+use crate::event::{pointer::PointerEvent, wheel::WheelEvent};
 
 pub struct HookFn<T> {
     callback: Option<Box<dyn FnMut(&T)>>,
@@ -44,4 +44,5 @@ pub(crate) struct NodeHooks {
     pub render: HookFn<()>,
     pub pointer_event: HookFn<PointerEvent>,
     pub hover_event: HookFn<PointerEvent>,
+    pub wheel_event: HookFn<WheelEvent>,
 }

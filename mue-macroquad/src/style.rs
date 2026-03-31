@@ -17,7 +17,7 @@ use taffy::{
 };
 
 use crate::{
-    event::pointer::PointerEvent,
+    event::{pointer::PointerEvent, wheel::WheelEvent},
     hook::{HookFn, NodeHooks},
     math::Matrix,
     node::{Children, IntoChildren},
@@ -309,6 +309,7 @@ define_style! {
         on_render: HookFn<()>;
         on_pointer_event: HookFn<PointerEvent>;
         on_hover_event: HookFn<PointerEvent>;
+        on_wheel_event: HookFn<WheelEvent>;
 
         on_tap: HookFn<()>;
         on_long_press: HookFn<()>;
@@ -325,6 +326,7 @@ impl Style {
             render: self.take_on_render(),
             pointer_event: self.take_on_pointer_event(),
             hover_event: self.take_on_hover_event(),
+            wheel_event: self.take_on_wheel_event(),
         }
     }
 
