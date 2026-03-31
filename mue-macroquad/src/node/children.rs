@@ -63,8 +63,8 @@ impl<const N: usize> IntoChildren for [Node; N] {
 
 pub fn map_keyed<T, K, N>(
     list: impl Into<Prop<Rc<[T]>>>,
-    key_fn: impl Fn(&T) -> K + 'static,
-    node_fn: impl Fn(&T) -> N + 'static,
+    key_fn: impl FnMut(&T) -> K + 'static,
+    mut node_fn: impl FnMut(&T) -> N + 'static,
 ) -> Owned<Children>
 where
     T: 'static,
@@ -73,8 +73,8 @@ where
 {
     fn inner<T, K>(
         list: Prop<Rc<[T]>>,
-        key_fn: Box<dyn Fn(&T) -> K + 'static>,
-        node_fn: Box<dyn Fn(&T) -> Node + 'static>,
+        mut key_fn: Box<dyn FnMut(&T) -> K + 'static>,
+        mut node_fn: Box<dyn FnMut(&T) -> Node + 'static>,
     ) -> Owned<Children>
     where
         T: 'static,
