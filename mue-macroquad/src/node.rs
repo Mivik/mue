@@ -103,7 +103,9 @@ impl NodeRef {
 
             let node = rt.node(self.id);
             if !node.children.is_null() {
-                for child in node.children.get_clone().iter() {
+                let children = node.children.get_clone();
+                drop(node);
+                for child in children.iter() {
                     child.render(origin);
                 }
             }
