@@ -67,7 +67,8 @@ impl Gesture for TapGesture {
     }
 
     fn on_rejected(&mut self, pointer_id: PointerId) {
-        assert!(self.active.as_ref().is_some_and(|id| id == &pointer_id));
-        self.active = None;
+        if self.active == Some(pointer_id) {
+            self.active = None;
+        }
     }
 }

@@ -122,6 +122,23 @@ pub trait StyleableExt: Styleable {
             }
         })
     }
+
+    fn use_hovered(self, hovered: Signal<bool>) -> Self {
+        let mut hover_count = 0;
+        self.on_hover_event(move |event| match event.action() {
+            PointerAction::Down  => {
+                hover_count += 1;
+                hovered.set(true);
+            }
+            PointerAction::Move => {}
+            PointerAction::Up | PointerAction::Cancel => {
+                hover_count -= 1;
+                if hover_count == 0 {
+                    hovered.set(false);
+                }
+            }
+        })
+    }
 }
 
 impl<T: Styleable> StyleableExt for T {}

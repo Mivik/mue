@@ -199,6 +199,7 @@ define_style! {
     @hooks {
         on_render: HookFn<()>;
         on_pointer_event: HookFn<PointerEvent>;
+        on_hover_event: HookFn<PointerEvent>;
 
         on_tap: HookFn<()>;
         on_long_press: HookFn<()>;
@@ -214,6 +215,7 @@ impl Style {
         NodeHooks {
             render: self.take_on_render(),
             pointer_event: self.take_on_pointer_event(),
+            hover_event: self.take_on_hover_event(),
         }
     }
 

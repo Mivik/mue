@@ -5,6 +5,7 @@ use std::{
     rc::Rc,
 };
 
+use bitflags::bitflags;
 use glam::vec2;
 use indexmap::IndexSet;
 use macroquad::input::utils::{register_input_subscriber, repeat_all_miniquad_input};
@@ -42,20 +43,31 @@ pub enum PointerType {
 pub struct PointerId(u64);
 
 impl PointerId {
+    pub const MOUSE: PointerId = PointerId(u64::MAX - 1);
+
     pub fn from_touch_id(id: u64) -> Self {
         Self(id)
     }
+}
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ButtonState: u32 {
+        const PRIMARY = 0x01;
+        const SECONDARY = 0x02;
+        const TERTIARY = 0x04;
+        const UNKNOWN = 0x08;
+    }
+}
+
+impl ButtonState {
     pub fn from_mouse_button(button: MouseButton) -> Self {
-        Self(
-            u64::MAX
-                - match button {
-                    MouseButton::Left => 1,
-                    MouseButton::Middle => 2,
-                    MouseButton::Right => 3,
-                    MouseButton::Unknown => 4,
-                },
-        )
+        match button {
+            MouseButton::Left => ButtonState::PRIMARY,
+            MouseButton::Right => ButtonState::SECONDARY,
+            MouseButton::Middle => ButtonState::TERTIARY,
+            MouseButton::Unknown => ButtonState::UNKNOWN,
+        }
     }
 }
 
@@ -63,7 +75,9 @@ impl PointerId {
 pub struct PointerEvent {
     pointer_id: PointerId,
     pointer_type: PointerType,
+    button_state: ButtonState,
 
+    is_hover: bool,
     action: PointerAction,
     start_position: Vector,
     position: Vector,
@@ -72,11 +86,13 @@ pub struct PointerEvent {
 }
 
 impl PointerEvent {
-    pub fn new(pointer_id: PointerId, pointer_type: PointerType, start_pos: Vector) -> Self {
+    pub(crate) fn new(pointer_id: PointerId, pointer_type: PointerType, start_pos: Vector) -> Self {
         Self {
             pointer_id,
             pointer_type,
+            button_state: ButtonState::empty(),
 
+            is_hover: false,
             action: PointerAction::Down,
             start_position: start_pos,
             position: start_pos,
@@ -98,6 +114,10 @@ impl PointerEvent {
 
     pub fn pointer_type(&self) -> PointerType {
         self.pointer_type
+    }
+
+    pub fn button_state(&self) -> ButtonState {
+        self.button_state
     }
 
     pub fn action(&self) -> PointerAction {
@@ -132,6 +152,7 @@ impl fmt::Debug for ClaimToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClaimToken")
             .field("pointer_id", &self.pointer_id)
+            .field("gesture_id", &self.gesture_id)
             .finish()
     }
 }
@@ -180,8 +201,17 @@ struct PointerGestureState {
     claimed_by: RefCell<GestureId>,
 }
 
+impl PointerGestureState {
+    fn reset(&self) {
+        self.gestures.borrow_mut().clear();
+        self.dismissed.borrow_mut().clear();
+        *self.claimed_by.borrow_mut() = GestureId::null();
+    }
+}
+
 struct PointerTrack {
     nodes: IndexSet<NodeRef>,
+    hover_nodes: IndexSet<NodeRef>,
     state: Rc<PointerGestureState>,
     event: PointerEvent,
     claim_token: ClaimToken,
@@ -207,10 +237,23 @@ impl PointerTrack {
         };
         Self {
             nodes,
+            hover_nodes: IndexSet::new(),
             state,
             event,
             claim_token,
         }
+    }
+
+    fn set_nodes(&mut self, nodes: IndexSet<NodeRef>) {
+        self.state.reset();
+        let mut gestures = self.state.gestures.borrow_mut();
+        gestures.clear();
+        Runtime::with(|rt| {
+            for node in nodes.iter() {
+                gestures.extend(rt.node(node.id).gestures.iter().copied());
+            }
+        });
+        self.nodes = nodes;
     }
 
     fn flush_updates(&mut self) {
@@ -241,15 +284,21 @@ impl PointerTrack {
 
     fn dispatch(&mut self) {
         Runtime::with(|rt| {
-            for &node in self.nodes.iter() {
-                rt.invoke_hook(node.id, |hooks| &mut hooks.pointer_event, &self.event);
-            }
+            if self.event.is_hover {
+                for node in self.hover_nodes.iter() {
+                    rt.invoke_hook(node.id, |hooks| &mut hooks.hover_event, &self.event);
+                }
+            } else {
+                for node in self.nodes.iter() {
+                    rt.invoke_hook(node.id, |hooks| &mut hooks.pointer_event, &self.event);
+                }
 
-            let mut gesture_map = rt.gestures.borrow_mut();
-            for gesture_id in self.state.gestures.borrow().iter() {
-                let gesture = &mut gesture_map[*gesture_id];
-                self.claim_token.gesture_id = *gesture_id;
-                gesture.on_event(&self.event, &self.claim_token);
+                let mut gesture_map = rt.gestures.borrow_mut();
+                for gesture_id in self.state.gestures.borrow().iter() {
+                    let gesture = &mut gesture_map[*gesture_id];
+                    self.claim_token.gesture_id = *gesture_id;
+                    gesture.on_event(&self.event, &self.claim_token);
+                }
             }
         });
     }
@@ -264,7 +313,6 @@ pub struct PointerManager {
     root_node: NodeRef,
     subscriber_id: usize,
     tracks: HashMap<PointerId, PointerTrack>,
-    mouse_pos: Vector,
 }
 
 impl Default for PointerManager {
@@ -279,7 +327,6 @@ impl PointerManager {
             root_node: NodeRef::null(),
             subscriber_id: register_input_subscriber(),
             tracks: HashMap::new(),
-            mouse_pos: Vector::ZERO,
         }
     }
 
@@ -291,34 +338,71 @@ impl PointerManager {
         repeat_all_miniquad_input(self, self.subscriber_id);
     }
 
-    fn hit_test(&self, pos: Vector) -> IndexSet<NodeRef> {
-        let mut result = IndexSet::new();
-        do_hit_test(self.root_node, pos, &mut result);
-        result
+    fn on_track_down(track: &mut PointerTrack, root_node: NodeRef, pos: Vector) {
+        assert!(track.event.is_hover);
+        track.event.is_hover = false;
+        track.set_nodes(hit_test(root_node, pos));
+        track.update(PointerAction::Down, pos);
     }
 
-    fn on_pointer_start(&mut self, id: PointerId, pointer_type: PointerType, pos: Vector) {
-        let nodes = self.hit_test(pos);
-        let event = PointerEvent::new(id, pointer_type, pos);
-        let mut track = PointerTrack::new(nodes, event);
+    fn update_hover_nodes(track: &mut PointerTrack, hover_nodes: IndexSet<NodeRef>) {
+        assert!(track.event.is_hover);
+        Runtime::with(|rt| {
+            for node in track.hover_nodes.iter() {
+                track.event.action = if hover_nodes.contains(node) {
+                    PointerAction::Move
+                } else {
+                    PointerAction::Up
+                };
+                rt.invoke_hook(node.id, |hooks| &mut hooks.hover_event, &track.event);
+            }
+            for node in hover_nodes.difference(&track.hover_nodes) {
+                track.event.action = PointerAction::Down;
+                rt.invoke_hook(node.id, |hooks| &mut hooks.hover_event, &track.event);
+            }
+            track.hover_nodes = hover_nodes;
+        });
+    }
 
-        use std::collections::hash_map::Entry;
-        match self.tracks.entry(id) {
-            Entry::Occupied(mut occupied) => {
-                occupied.get_mut().update(PointerAction::Cancel, pos);
-                track.dispatch();
-                occupied.insert(track);
-            }
-            Entry::Vacant(vacant) => {
-                track.dispatch();
-                vacant.insert(track);
-            }
+    fn on_track_move(track: &mut PointerTrack, root_node: NodeRef, pos: Vector) {
+        if track.event.is_hover {
+            track.event.update(PointerAction::Move, pos);
+            Self::update_hover_nodes(track, hit_test(root_node, pos));
+        } else {
+            track.update(PointerAction::Move, pos);
         }
     }
 
-    fn on_pointer_move(&mut self, id: PointerId, pos: Vector) {
+    fn on_track_up(track: &mut PointerTrack, root_node: NodeRef, pos: Vector) {
+        track.update(PointerAction::Up, pos);
+        track.state.reset();
+        track.event.is_hover = true;
+        track.event.action = PointerAction::Move;
+        Self::update_hover_nodes(track, hit_test(root_node, pos));
+    }
+
+    fn on_pointer_start(&mut self, id: PointerId, pointer_type: PointerType, pos: Vector) {
         if let Some(track) = self.tracks.get_mut(&id) {
-            track.update(PointerAction::Move, pos);
+            Self::on_track_down(track, self.root_node, pos);
+        } else {
+            let event = PointerEvent::new(id, pointer_type, pos);
+            let mut track = PointerTrack::new(hit_test(self.root_node, pos), event);
+            track.dispatch();
+            self.tracks.insert(id, track);
+        }
+    }
+
+    fn on_pointer_move(&mut self, id: PointerId, pointer_type: PointerType, pos: Vector) {
+        if let Some(track) = self.tracks.get_mut(&id) {
+            Self::on_track_move(track, self.root_node, pos);
+        } else {
+            // Move event without start, enters hover state
+            let mut event = PointerEvent::new(id, pointer_type, pos);
+            event.is_hover = true;
+            let mut track = PointerTrack::new(IndexSet::new(), event);
+            track.nodes = hit_test(self.root_node, pos);
+            track.dispatch();
+            self.tracks.insert(id, track);
         }
     }
 
@@ -333,8 +417,43 @@ impl PointerManager {
             track.update(PointerAction::Cancel, track.event.position());
         }
     }
+
+    fn on_pointer_button_down(
+        &mut self,
+        id: PointerId,
+        pointer_type: PointerType,
+        button_state: ButtonState,
+        pos: Vector,
+    ) {
+        if let Some(track) = self.tracks.get_mut(&id) {
+            track.event.button_state.insert(button_state);
+            Self::on_track_down(track, self.root_node, pos);
+        } else {
+            let mut event = PointerEvent::new(id, pointer_type, pos);
+            event.button_state.insert(button_state);
+            let mut track = PointerTrack::new(hit_test(self.root_node, pos), event);
+            track.dispatch();
+            self.tracks.insert(id, track);
+        }
+    }
+
+    fn on_pointer_button_up(&mut self, id: PointerId, button_state: ButtonState, pos: Vector) {
+        if let Some(track) = self.tracks.get_mut(&id) {
+            track.event.button_state.remove(button_state);
+            if track.event.button_state.is_empty() {
+                Self::on_track_up(track, self.root_node, pos);
+            } else {
+                Self::on_track_move(track, self.root_node, pos);
+            }
+        }
+    }
 }
 
+fn hit_test(node: NodeRef, pos: Vector) -> IndexSet<NodeRef> {
+    let mut result = IndexSet::new();
+    do_hit_test(node, pos, &mut result);
+    result
+}
 fn do_hit_test(node: NodeRef, pos: Vector, result: &mut IndexSet<NodeRef>) {
     if node.id.is_null() {
         return;
@@ -374,23 +493,7 @@ impl EventHandler for PointerManager {
 
     fn mouse_motion_event(&mut self, _ctx: &mut miniquad::Context, x: f32, y: f32) {
         let pos = Vector::new(x, y);
-        let old_pos = self.mouse_pos;
-        self.mouse_pos = pos;
-
-        // Propagate move to any active mouse-button pointers.
-        let ids: Vec<PointerId> = [MouseButton::Left, MouseButton::Middle, MouseButton::Right]
-            .iter()
-            .map(|&b| PointerId::from_mouse_button(b))
-            .filter(|id| self.tracks.contains_key(id))
-            .collect();
-
-        if ids.is_empty() {
-            let _ = old_pos; // suppress unused warning
-        }
-
-        for id in ids {
-            self.on_pointer_move(id, pos);
-        }
+        self.on_pointer_move(PointerId::MOUSE, PointerType::Mouse, pos);
     }
 
     fn mouse_button_down_event(
@@ -400,20 +503,21 @@ impl EventHandler for PointerManager {
         x: f32,
         y: f32,
     ) {
-        let id = PointerId::from_mouse_button(button);
+        let button_state = ButtonState::from_mouse_button(button);
         let pos = Vector::new(x, y);
-        self.mouse_pos = pos;
-        self.on_pointer_start(id, PointerType::Mouse, pos);
+        self.on_pointer_button_down(PointerId::MOUSE, PointerType::Mouse, button_state, pos);
     }
 
     fn mouse_button_up_event(
         &mut self,
         _ctx: &mut miniquad::Context,
         button: MouseButton,
-        _x: f32,
-        _y: f32,
+        x: f32,
+        y: f32,
     ) {
-        self.on_pointer_end(PointerId::from_mouse_button(button));
+        let button_state = ButtonState::from_mouse_button(button);
+        let pos = Vector::new(x, y);
+        self.on_pointer_button_up(PointerId::MOUSE, button_state, pos);
     }
 
     fn touch_event(
@@ -431,7 +535,9 @@ impl EventHandler for PointerManager {
             miniquad::TouchPhase::Started => {
                 self.on_pointer_start(pointer_id, PointerType::Touch, pos)
             }
-            miniquad::TouchPhase::Moved => self.on_pointer_move(pointer_id, pos),
+            miniquad::TouchPhase::Moved => {
+                self.on_pointer_move(pointer_id, PointerType::Touch, pos)
+            }
             miniquad::TouchPhase::Ended => self.on_pointer_end(pointer_id),
             miniquad::TouchPhase::Cancelled => self.on_pointer_cancel(pointer_id),
         }

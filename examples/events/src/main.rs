@@ -22,17 +22,23 @@ fn main() {
 #[mue_macros::component]
 fn view() -> impl Component {
     let pressed = signal(false);
+    let hovered = signal(false);
     let count = signal(0);
     let long_pressed = signal(false);
     let mut long_pressed_handle = None;
 
     text(computed(move |_| {
         format!(
-            "Clicked {} times\nPressed: {}{}",
+            "Clicked {} times\nPressed: {}{}{}",
             count.get(),
             pressed.get(),
             if long_pressed.get() {
                 "\nLong pressed"
+            } else {
+                ""
+            },
+            if hovered.get() {
+                "\nHovered"
             } else {
                 ""
             }
@@ -40,6 +46,7 @@ fn view() -> impl Component {
         .into()
     }))
     .use_pressed(pressed)
+    .use_hovered(hovered)
     .on_tap(move |_| count.update(|c| *c += 1))
     .on_long_press(move |_| {
         long_pressed.set(true);
